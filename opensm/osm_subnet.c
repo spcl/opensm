@@ -188,9 +188,10 @@ static const char *module_name_str[] = {
 	"osm_ucast_dfsssp.c",
 	"osm_congestion_control.c",
 	"osm_ucast_nue.c",
+    "osm_ucast_lnmp.c",
 	/* Add new module names here ... */
 	/* FILE_ID define in those modules must be identical to index here */
-	/* last FILE_ID is currently 90 */
+	/* last FILE_ID is currently 91 */
 };
 
 #define MOD_NAME_STR_UNKNOWN_VAL (ARR_SIZE(module_name_str))
@@ -841,6 +842,7 @@ static const opt_rec_t opt_tbl[] = {
 	{ "sa_db_file", OPT_OFFSET(sa_db_file), opts_parse_charp, NULL, 0 },
 	{ "sa_db_dump", OPT_OFFSET(sa_db_dump), opts_parse_boolean, NULL, 1 },
 	{ "torus_config", OPT_OFFSET(torus_conf_file), opts_parse_charp, NULL, 1 },
+	{ "lnmp_config", OPT_OFFSET(lnmp_conf_file), opts_parse_charp, NULL, 1 },
 	{ "do_mesh_analysis", OPT_OFFSET(do_mesh_analysis), opts_parse_boolean, NULL, 1 },
 	{ "exit_on_fatal", OPT_OFFSET(exit_on_fatal), opts_parse_boolean, NULL, 1 },
 	{ "honor_guid2lid_file", OPT_OFFSET(honor_guid2lid_file), opts_parse_boolean, NULL, 1 },
@@ -920,6 +922,12 @@ static const opt_rec_t opt_tbl[] = {
 	{ "sm_sl", OPT_OFFSET(sm_sl), opts_parse_uint8, NULL, 1 },
 	{ "nue_max_num_vls", OPT_OFFSET(nue_max_num_vls), opts_parse_uint8, NULL, 1 },
 	{ "nue_include_switches", OPT_OFFSET(nue_include_switches), opts_parse_boolean, NULL, 0 },
+	{ "lnmp_max_num_paths", OPT_OFFSET(lnmp_max_num_paths), opts_parse_uint32, NULL, 1 },
+	{ "lnmp_min_path_len", OPT_OFFSET(lnmp_min_path_len), opts_parse_uint8, NULL, 1 },
+	{ "lnmp_max_path_len", OPT_OFFSET(lnmp_max_path_len), opts_parse_uint8, NULL, 1 },
+	{ "dfsssp_max_vls", OPT_OFFSET(dfsssp_max_vls), opts_parse_uint8, NULL, 1 },
+    { "layers_remove_deadlocks", OPT_OFFSET(layers_remove_deadlocks), opts_parse_boolean, NULL, 0 },
+    { "dfsssp_best_effort", OPT_OFFSET(dfsssp_best_effort), opts_parse_boolean, NULL, 0 },
 	{ "log_prefix", OPT_OFFSET(log_prefix), opts_parse_charp, NULL, 1 },
 	{ "per_module_logging_file", OPT_OFFSET(per_module_logging_file), opts_parse_charp, NULL, 0 },
 	{ "quasi_ftree_indexing", OPT_OFFSET(quasi_ftree_indexing), opts_parse_boolean, NULL, 1 },
@@ -1110,6 +1118,7 @@ static void subn_opt_destroy(IN osm_subn_opt_t * p_opt)
 	free(p_opt->guid_routing_order_file);
 	free(p_opt->sa_db_file);
 	free(p_opt->torus_conf_file);
+    free(p_opt->lnmp_conf_file);
 #ifdef ENABLE_OSM_PERF_MGR
 	free(p_opt->event_db_dump_file);
 #endif /* ENABLE_OSM_PERF_MGR */
@@ -1663,6 +1672,7 @@ void osm_subn_set_default_opt(IN osm_subn_opt_t * p_opt)
 	p_opt->sa_db_file = NULL;
 	p_opt->sa_db_dump = FALSE;
 	p_opt->torus_conf_file = strdup(OSM_DEFAULT_TORUS_CONF_FILE);
+	p_opt->lnmp_conf_file = strdup(OSM_DEFAULT_LNMP_CONF_FILE);
 	p_opt->do_mesh_analysis = FALSE;
 	p_opt->exit_on_fatal = TRUE;
 	p_opt->congestion_control = FALSE;
@@ -1676,6 +1686,12 @@ void osm_subn_set_default_opt(IN osm_subn_opt_t * p_opt)
 	p_opt->sm_sl = OSM_DEFAULT_SL;
 	p_opt->nue_max_num_vls = 1;
 	p_opt->nue_include_switches = FALSE;
+	p_opt->lnmp_max_num_paths = 100000;
+	p_opt->lnmp_min_path_len = 2;
+	p_opt->lnmp_max_path_len = 3;
+	p_opt->dfsssp_max_vls = 0;
+    p_opt->layers_remove_deadlocks = TRUE;
+    p_opt->dfsssp_best_effort = FALSE;
 	p_opt->log_prefix = NULL;
 	p_opt->per_module_logging_file = strdup(OSM_DEFAULT_PER_MOD_LOGGING_CONF_FILE);
 	subn_init_qos_options(&p_opt->qos_options, NULL);
@@ -2585,7 +2601,7 @@ void osm_subn_output_conf(FILE *out, IN osm_subn_opt_t * p_opts)
 		"# commas so that specific ordering of routing algorithms will\n"
 		"# be tried if earlier routing engines fail.\n"
 		"# Supported engines: minhop, updn, dnup, file, ftree, lash,\n"
-		"#    dor, torus-2QoS, nue, dfsssp, sssp\n"
+		"#    dor, torus-2QoS, nue, dfsssp, sssp, lnmp\n"
 		"routing_engine %s\n\n", p_opts->routing_engine_names ?
 		p_opts->routing_engine_names : null_str);
 
@@ -2683,6 +2699,42 @@ void osm_subn_output_conf(FILE *out, IN osm_subn_opt_t * p_opts)
 		p_opts->nue_include_switches ? "TRUE" : "FALSE");
 
 	fprintf(out,
+		"# Maximum number of paths added per layer for LNMP routing.\n"
+		"# Default is 100000.\n"
+		"lnmp_max_num_paths %u\n\n",
+		p_opts->lnmp_max_num_paths);
+
+	fprintf(out,
+		"# Minimum length of paths added to each layer for LNMP routing.\n"
+		"# This constraint is not applied for the first layer, which is minimal.\n"
+		"# Default is 2.\n"
+		"lnmp_min_path_len %u\n\n",
+		p_opts->lnmp_min_path_len);
+
+	fprintf(out,
+		"# Maximum length of paths added to each layer for LNMP routing.\n"
+		"# This constraint is not applied for the first layer, which is minimal.\n"
+		"# Default is 3.\n"
+		"lnmp_max_path_len %u\n\n",
+		p_opts->lnmp_max_path_len);
+
+	fprintf(out,
+		"# Maximum number of Virtual Lanes used for deadlock removal by DFSSSP.\n"
+		"# Default is 0.\n"
+		"dfsssp_max_vls %u\n\n",
+		p_opts->dfsssp_max_vls);
+
+    fprintf(out,
+        "# Try to resolve deadlocks using DFSSSP (for algorithms that use layers)\n"
+        "layers_remove_deadlocks %s\n\n",
+        p_opts->layers_remove_deadlocks ? "TRUE" : "FALSE");
+
+    fprintf(out,
+        "# Only do best effort deadlock removal with DFSSSP\n"
+        "dfsssp_best_effort %s\n\n",
+        p_opts->dfsssp_best_effort ? "TRUE" : "FALSE");
+
+	fprintf(out,
 		"# Port Shifting (use FALSE if unsure)\n"
 		"port_shifting %s\n\n",
 		p_opts->port_shifting ? "TRUE" : "FALSE");
@@ -2713,6 +2765,10 @@ void osm_subn_output_conf(FILE *out, IN osm_subn_opt_t * p_opts)
 		"# Torus-2QoS configuration file name\ntorus_config %s\n\n",
 		p_opts->torus_conf_file ? p_opts->torus_conf_file : null_str);
 
+	fprintf(out,
+		"# LNMP configuration file name\nlnmp_config %s\n\n",
+		p_opts->lnmp_conf_file ? p_opts->lnmp_conf_file : null_str);
+    
 	fprintf(out,
 		"#\n# HANDOVER - MULTIPLE SMs OPTIONS\n#\n"
 		"# SM priority used for deciding who is the master\n"

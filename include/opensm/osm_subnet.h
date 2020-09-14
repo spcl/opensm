@@ -328,6 +328,7 @@ typedef struct osm_subn_opt {
 	char *sa_db_file;
 	boolean_t sa_db_dump;
 	char *torus_conf_file;
+    char *lnmp_conf_file;
 	boolean_t do_mesh_analysis;
 	boolean_t exit_on_fatal;
 	boolean_t honor_guid2lid_file;
@@ -388,6 +389,12 @@ typedef struct osm_subn_opt {
 	boolean_t nue_include_switches;	/* control how nue treats switches */
 	char *per_module_logging_file;
 	boolean_t quasi_ftree_indexing;
+	uint64_t lnmp_max_num_paths;
+	uint8_t lnmp_min_path_len;
+	uint8_t lnmp_max_path_len;
+        uint8_t dfsssp_max_vls;
+    boolean_t layers_remove_deadlocks;
+    boolean_t dfsssp_best_effort;
 } osm_subn_opt_t;
 /*
 * FIELDS
@@ -601,6 +608,10 @@ typedef struct osm_subn_opt {
 *	torus_conf_file
 *		Name of the file with extra configuration info for torus-2QoS
 *		routing engine.
+*
+*	lnmp_conf_file
+*	    Name of the file with extra configuration info for lnmp routing
+*	    engine.
 *
 *	exit_on_fatal
 *		If TRUE (default) - SM will exit on fatal subnet initialization

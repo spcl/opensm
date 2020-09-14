@@ -152,6 +152,7 @@ typedef enum _osm_file_ids_enum {
 	OSM_FILE_UCAST_DFSSSP_C,
 	OSM_FILE_CONGESTION_CONTROL_C,
 	OSM_FILE_UCAST_NUE_C,
+    OSM_FILE_UCAST_LNMP_C,
 } osm_file_ids_enum;
 /***********/
 

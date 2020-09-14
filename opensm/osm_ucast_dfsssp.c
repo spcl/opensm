@@ -56,125 +56,7 @@
 #include <opensm/osm_node.h>
 #include <opensm/osm_multicast.h>
 #include <opensm/osm_mcast_mgr.h>
-
-/* "infinity" for dijkstra */
-#define INF      0x7FFFFFFF
-
-enum {
-	UNDISCOVERED = 0,
-	DISCOVERED
-};
-
-enum {
-	UNKNOWN = 0,
-	GRAY,
-	BLACK,
-};
-
-typedef struct link {
-	uint64_t guid;		/* guid of the neighbor behind the link */
-	uint32_t from;		/* base_index in the adjazenz list (start of the link) */
-	uint8_t from_port;	/* port on the base_side (needed for weight update to identify the correct link for multigraphs) */
-	uint32_t to;		/* index of the neighbor in the adjazenz list (end of the link) */
-	uint8_t to_port;	/* port on the side of the neighbor (needed for the LFT) */
-	uint64_t weight;	/* link weight */
-	struct link *next;
-} link_t;
-
-typedef struct vertex {
-	/* informations of the fabric */
-	uint64_t guid;
-	uint16_t lid;		/* for lft filling */
-	uint32_t num_hca;	/* numbers of Hca/LIDs on the switch, for weight calculation */
-	link_t *links;
-	uint8_t hops;
-	/* for dijkstra routing */
-	link_t *used_link;	/* link between the vertex discovered before and this vertex */
-	uint64_t distance;	/* distance from source to this vertex */
-	uint8_t state;
-	/* for the d-ary heap */
-	size_t heap_index;
-	/* for LFT writing and debug */
-	osm_switch_t *sw;	/* selfpointer */
-	boolean_t dropped;	/* indicate dropped switches (w/ ucast cache) */
-} vertex_t;
-
-typedef struct vltable {
-	uint64_t num_lids;	/* size of the lids array */
-	uint16_t *lids;		/* sorted array of all lids in the subnet */
-	uint8_t *vls;		/* matrix form assignment lid X lid -> virtual lane */
-} vltable_t;
-
-typedef struct cdg_link {
-	struct cdg_node *node;
-	uint32_t num_pairs;	/* number of src->dest pairs incremented in path adding step */
-	uint32_t max_len;	/* length of the srcdest array */
-	uint32_t removed;	/* number of pairs removed in path deletion step */
-	uint32_t *srcdest_pairs;
-	struct cdg_link *next;
-} cdg_link_t;
-
-/* struct for a node of a binary tree with additional parent pointer */
-typedef struct cdg_node {
-	uint64_t channelID;	/* unique key consist of src lid + port + dest lid + port */
-	cdg_link_t *linklist;	/* edges to adjazent nodes */
-	uint8_t status;		/* node status in cycle search to avoid recursive function */
-	uint8_t visited;	/* needed to traverse the binary tree */
-	struct cdg_node *pre;	/* to save the path in cycle detection algorithm */
-	struct cdg_node *left, *right, *parent;
-} cdg_node_t;
-
-typedef struct dfsssp_context {
-	osm_routing_engine_type_t routing_type;
-	osm_ucast_mgr_t *p_mgr;
-	vertex_t *adj_list;
-	uint32_t adj_list_size;
-	vltable_t *srcdest2vl_table;
-	uint8_t *vl_split_count;
-} dfsssp_context_t;
-
-/**************** set initial values for structs **********************
- **********************************************************************/
-static inline void set_default_link(link_t * link)
-{
-	link->guid = 0;
-	link->from = 0;
-	link->from_port = 0;
-	link->to = 0;
-	link->to_port = 0;
-	link->weight = 0;
-	link->next = NULL;
-}
-
-static inline void set_default_vertex(vertex_t * vertex)
-{
-	vertex->guid = 0;
-	vertex->lid = 0;
-	vertex->num_hca = 0;
-	vertex->links = NULL;
-	vertex->hops = 0;
-	vertex->used_link = NULL;
-	vertex->distance = 0;
-	vertex->state = UNDISCOVERED;
-	vertex->heap_index = 0;
-	vertex->sw = NULL;
-	vertex->dropped = FALSE;
-}
-
-static inline void set_default_cdg_node(cdg_node_t * node)
-{
-	node->channelID = 0;
-	node->linklist = NULL;
-	node->status = UNKNOWN;
-	node->visited = 0;
-	node->pre = NULL;
-	node->left = NULL;
-	node->right = NULL;
-	node->parent = NULL;
-}
-
-/**********************************************************************
- **********************************************************************/
+#include <opensm/osm_ucast_dfsssp.h>
 
 /************ helper functions to save src/dest X vl combination ******
  **********************************************************************/
@@ -216,7 +98,7 @@ static inline int64_t vltable_get_lidindex(ib_net16_t * key, vltable_t * vltable
 /* get virtual lane from src lid X dest lid combination;
    return -1 for invalid lids
 */
-static int32_t vltable_get_vl(vltable_t * vltable, ib_net16_t slid, ib_net16_t dlid)
+int32_t vltable_get_vl(vltable_t * vltable, ib_net16_t slid, ib_net16_t dlid)
 {
 	int64_t ind1 = vltable_get_lidindex(&slid, vltable);
 	int64_t ind2 = vltable_get_lidindex(&dlid, vltable);
@@ -240,7 +122,7 @@ static inline void vltable_insert(vltable_t * vltable, ib_net16_t slid,
 }
 
 /* change a number of lanes from lane xy to lane yz */
-static void vltable_change_vl(vltable_t * vltable, uint8_t from, uint8_t to,
+static int vltable_change_vl(vltable_t * vltable, uint8_t from, uint8_t to,
 			      uint64_t count)
 {
 	uint64_t set = 0, stop = 0;
@@ -264,8 +146,9 @@ static void vltable_change_vl(vltable_t * vltable, uint8_t from, uint8_t to,
 			}
 		}
 		if (stop)
-			break;
+			return 0;
 	}
+	return 1;
 }
 
 static void vltable_print(osm_ucast_mgr_t * p_mgr, vltable_t * vltable)
@@ -287,7 +170,7 @@ static void vltable_print(osm_ucast_mgr_t * p_mgr, vltable_t * vltable)
 	}
 }
 
-static void vltable_dealloc(vltable_t ** vltable)
+void vltable_dealloc(vltable_t ** vltable)
 {
 	if (*vltable) {
 		if ((*vltable)->lids)
@@ -864,7 +747,7 @@ ERROR:
 /************ helper functions to generate an ordered list of ports ***
  ************ (functions copied from osm_ucast_mgr.c and modified) ****
  **********************************************************************/
-static void add_sw_endports_to_order_list(osm_switch_t * sw,
+void add_sw_endports_to_order_list(osm_switch_t * sw,
 					  osm_ucast_mgr_t * m,
 					  cl_qmap_t * guid_tbl,
 					  boolean_t add_guids)
@@ -913,7 +796,7 @@ static void add_sw_endports_to_order_list(osm_switch_t * sw,
 	}
 }
 
-static void add_guid_to_order_list(uint64_t guid, osm_ucast_mgr_t * m)
+void add_guid_to_order_list(uint64_t guid, osm_ucast_mgr_t * m)
 {
 	osm_port_t *port = osm_get_port_by_guid(m->p_subn, cl_hton64(guid));
 
@@ -931,7 +814,7 @@ static void add_guid_to_order_list(uint64_t guid, osm_ucast_mgr_t * m)
 }
 
 /* compare function of #Hca attached to a switch for stdlib qsort */
-static int cmp_num_hca(const void * l1, const void * l2)
+int cmp_num_hca(const void * l1, const void * l2)
 {
 	vertex_t *sw1 = *((vertex_t **) l1);
 	vertex_t *sw2 = *((vertex_t **) l2);
@@ -950,19 +833,12 @@ static int cmp_num_hca(const void * l1, const void * l2)
 		return 0;
 }
 
-/* use stdlib to sort the switch array depending on num_hca */
-static inline void sw_list_sort_by_num_hca(vertex_t ** sw_list,
-					   uint32_t sw_list_size)
-{
-	qsort(sw_list, sw_list_size, sizeof(vertex_t *), cmp_num_hca);
-}
-
 /**********************************************************************
  **********************************************************************/
 
 /************ helper functions to manage a map of CN and I/O guids ****
  **********************************************************************/
-static int add_guid_to_map(void * cxt, uint64_t guid, char * p)
+int add_guid_to_map(void * cxt, uint64_t guid, char * p)
 {
 	cl_qmap_t *map = cxt;
 	name_map_item_t *item;
@@ -981,7 +857,7 @@ static int add_guid_to_map(void * cxt, uint64_t guid, char * p)
 	return 0;
 }
 
-static void destroy_guid_map(cl_qmap_t * guid_tbl)
+void destroy_guid_map(cl_qmap_t * guid_tbl)
 {
 	name_map_item_t *p_guid = NULL, *p_next_guid = NULL;
 
@@ -997,7 +873,7 @@ static void destroy_guid_map(cl_qmap_t * guid_tbl)
 /**********************************************************************
  **********************************************************************/
 
-static void dfsssp_print_graph(osm_ucast_mgr_t * p_mgr, vertex_t * adj_list,
+void print_graph(osm_ucast_mgr_t * p_mgr, vertex_t * adj_list,
 			       uint32_t size)
 {
 	uint32_t i = 0, c = 0;
@@ -1027,6 +903,43 @@ static void dfsssp_print_graph(osm_ucast_mgr_t * p_mgr, vertex_t * adj_list,
 			OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
 				"      weight on this link = %" PRIu64 "\n",
 				link->weight);
+		}
+	}
+}
+
+void print_routes(osm_ucast_mgr_t * p_mgr, vertex_t * adj_list,
+			 uint32_t adj_list_size, osm_port_t * port)
+{
+	uint32_t i = 0, j = 0;
+
+	for (i = 1; i < adj_list_size; i++) {
+		if (adj_list[i].state == DISCOVERED) {
+			OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
+				"Route from 0x%" PRIx64 " (%s) to 0x%" PRIx64
+				" (%s):\n", adj_list[i].guid,
+				adj_list[i].sw->p_node->print_desc,
+				cl_ntoh64(osm_node_get_node_guid(port->p_node)),
+				port->p_node->print_desc);
+			j = i;
+			while (adj_list[j].used_link) {
+				if (j > 0) {
+					OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
+						"   0x%" PRIx64
+						" (%s) routes thru port %" PRIu8
+						"\n", adj_list[j].guid,
+						adj_list[j].sw->p_node->
+						print_desc,
+						adj_list[j].used_link->to_port);
+				} else {
+					OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
+						"   0x%" PRIx64
+						" (%s) routes thru port %" PRIu8
+						"\n", adj_list[j].guid,
+						port->p_node->print_desc,
+						adj_list[j].used_link->to_port);
+				}
+				j = adj_list[j].used_link->from;
+			}
 		}
 	}
 }
@@ -1217,8 +1130,14 @@ static int dfsssp_build_graph(void *context)
 		 */
 		if (osm_node_get_type(p_port->p_node) != IB_NODE_TYPE_CA)
 			max_num_undiscov = 1;
-		for (i = 1; i < adj_list_size; i++)
-			undiscov += (adj_list[i].used_link) ? 0 : 1;
+		for (i = 1; i < adj_list_size; i++) {
+            if(!adj_list[i].used_link) {
+                undiscov++;
+                OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG, 
+                        "Switch: 0x%" PRIx64 ", was not discovered by dijkstra\n", 
+				        cl_ntoh64(osm_node_get_node_guid(adj_list[i].sw->p_node)));
+            }
+        }
 		if (max_num_undiscov < undiscov) {
 			OSM_LOG(p_mgr->p_log, OSM_LOG_ERROR,
 				"ERR AD0C: unsupported network state (detached"
@@ -1232,7 +1151,7 @@ static int dfsssp_build_graph(void *context)
 
 	/* print the discovered graph */
 	if (OSM_LOG_IS_ACTIVE_V2(p_mgr->p_log, OSM_LOG_DEBUG))
-		dfsssp_print_graph(p_mgr, adj_list, adj_list_size);
+		print_graph(p_mgr, adj_list, adj_list_size);
 
 	OSM_LOG_EXIT(p_mgr->p_log);
 	return 0;
@@ -1242,43 +1161,6 @@ ERROR:
 		cl_heap_destroy(&heap);
 	dfsssp_context_destroy(context);
 	return -1;
-}
-
-static void print_routes(osm_ucast_mgr_t * p_mgr, vertex_t * adj_list,
-			 uint32_t adj_list_size, osm_port_t * port)
-{
-	uint32_t i = 0, j = 0;
-
-	for (i = 1; i < adj_list_size; i++) {
-		if (adj_list[i].state == DISCOVERED) {
-			OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
-				"Route from 0x%" PRIx64 " (%s) to 0x%" PRIx64
-				" (%s):\n", adj_list[i].guid,
-				adj_list[i].sw->p_node->print_desc,
-				cl_ntoh64(osm_node_get_node_guid(port->p_node)),
-				port->p_node->print_desc);
-			j = i;
-			while (adj_list[j].used_link) {
-				if (j > 0) {
-					OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
-						"   0x%" PRIx64
-						" (%s) routes thru port %" PRIu8
-						"\n", adj_list[j].guid,
-						adj_list[j].sw->p_node->
-						print_desc,
-						adj_list[j].used_link->to_port);
-				} else {
-					OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
-						"   0x%" PRIx64
-						" (%s) routes thru port %" PRIu8
-						"\n", adj_list[j].guid,
-						port->p_node->print_desc,
-						adj_list[j].used_link->to_port);
-				}
-				j = adj_list[j].used_link->from;
-			}
-		}
-	}
 }
 
 /* callback function for the cl_heap to update the index */
@@ -1721,7 +1603,7 @@ static void update_weights(osm_ucast_mgr_t * p_mgr, vertex_t * adj_list,
 /* get the largest number of virtual lanes which is supported by all switches
    in the subnet
 */
-static uint8_t get_avail_vl_in_subn(osm_ucast_mgr_t * p_mgr)
+uint8_t get_avail_vl_in_subn(osm_ucast_mgr_t * p_mgr)
 {
 	uint32_t i = 0;
 	uint8_t vls_avail = 0xFF, port_vls_avail = 0;
@@ -1766,7 +1648,7 @@ static uint8_t get_avail_vl_in_subn(osm_ucast_mgr_t * p_mgr)
    deadlocks in the network;
    assign new virtual lanes to some paths to break the deadlocks
 */
-static int dfsssp_remove_deadlocks(dfsssp_context_t * dfsssp_ctx)
+int dfsssp_remove_deadlocks(dfsssp_context_t * dfsssp_ctx)
 {
 	osm_ucast_mgr_t *p_mgr = (osm_ucast_mgr_t *) dfsssp_ctx->p_mgr;
 
@@ -1774,8 +1656,8 @@ static int dfsssp_remove_deadlocks(dfsssp_context_t * dfsssp_ctx)
 	cl_list_item_t *item1 = NULL, *item2 = NULL;
 	osm_port_t *src_port = NULL, *dest_port = NULL;
 
-	uint32_t i = 0, j = 0, err = 0;
-	uint8_t vl = 0, test_vl = 0, vl_avail = 0, vl_needed = 1;
+	uint32_t i = 0, j = 0, err = 0, bound = 0;
+	uint8_t vl = 0, test_vl = 0, vl_avail = 0, vl_needed = 1, vl_buffer = 0;
 	double most_avg_paths = 0.0;
 	cdg_node_t **cdg = NULL, *start_here = NULL, *cycle = NULL;
 	cdg_link_t *weakest_link = NULL;
@@ -1795,25 +1677,29 @@ static int dfsssp_remove_deadlocks(dfsssp_context_t * dfsssp_ctx)
 		"Assign each src/dest pair a Virtual Lanes, to remove deadlocks in the routing\n");
 
 	vl_avail = get_avail_vl_in_subn(p_mgr);
+        if(dfsssp_ctx->max_vls > 0 && vl_avail > dfsssp_ctx->max_vls) {
+            vl_avail = dfsssp_ctx->max_vls;
+        }
+	vl_buffer = vl_avail+1;
 	OSM_LOG(p_mgr->p_log, OSM_LOG_INFO,
 		"Virtual Lanes available: %" PRIu8 "\n", vl_avail);
 
-	paths_per_vl = (uint64_t *) malloc(vl_avail * sizeof(uint64_t));
+	paths_per_vl = (uint64_t *) malloc(vl_buffer * sizeof(uint64_t));
 	if (!paths_per_vl) {
 		OSM_LOG(p_mgr->p_log, OSM_LOG_ERROR,
 			"ERR AD22: cannot allocate memory for paths_per_vl\n");
 		return 1;
 	}
-	memset(paths_per_vl, 0, vl_avail * sizeof(uint64_t));
+	memset(paths_per_vl, 0, vl_buffer * sizeof(uint64_t));
 
-	cdg = (cdg_node_t **) malloc(vl_avail * sizeof(cdg_node_t *));
+	cdg = (cdg_node_t **) malloc(vl_buffer * sizeof(cdg_node_t *));
 	if (!cdg) {
 		OSM_LOG(p_mgr->p_log, OSM_LOG_ERROR,
 			"ERR AD23: cannot allocate memory for cdg\n");
 		free(paths_per_vl);
 		return 1;
 	}
-	for (i = 0; i < vl_avail; i++)
+	for (i = 0; i < vl_buffer; i++)
 		cdg[i] = NULL;
 
 	count = 0;
@@ -1933,7 +1819,7 @@ static int dfsssp_remove_deadlocks(dfsssp_context_t * dfsssp_ctx)
 	dfsssp_ctx->srcdest2vl_table = srcdest2vl_table;
 
 	/* test all cdg for cycles and break the cycles by moving paths on the weakest link to the next cdg */
-	for (test_vl = 0; test_vl < vl_avail - 1; test_vl++) {
+	for (test_vl = 0; test_vl < vl_buffer - 1; test_vl++) {
 		start_here = cdg[test_vl];
 		while (start_here) {
 			cycle =
@@ -2039,21 +1925,21 @@ static int dfsssp_remove_deadlocks(dfsssp_context_t * dfsssp_ctx)
 	   if there is one, than vl_needed > vl_avail
 	 */
 	start_here = cdg[vl_avail - 1];
-	if (start_here) {
+	/*if (start_here) {
 		cycle =
 		    search_cycle_in_channel_dep_graph(cdg[vl_avail - 1],
 						      start_here);
 		if (cycle) {
 			vl_needed = vl_avail + 1;
 		}
-	}
+	}*/
 
 	OSM_LOG(p_mgr->p_log, OSM_LOG_INFO,
 		"Virtual Lanes needed: %" PRIu8 "\n", vl_needed);
 	if (OSM_LOG_IS_ACTIVE_V2(p_mgr->p_log, OSM_LOG_INFO)) {
 		OSM_LOG(p_mgr->p_log, OSM_LOG_INFO,
 			"Paths per VL (before balancing):\n");
-		for (i = 0; i < vl_avail; i++)
+		for (i = 0; i < vl_buffer; i++)
 			OSM_LOG(p_mgr->p_log, OSM_LOG_INFO,
 				"   %" PRIu32 ". lane: %" PRIu64 "\n", i,
 				paths_per_vl[i]);
@@ -2066,7 +1952,7 @@ static int dfsssp_remove_deadlocks(dfsssp_context_t * dfsssp_ctx)
 	   sl/vl != 0 might be assigned to loopback packets (i.e. slid/dlid on the
 	   same port for lmc>0), but thats no problem, see IBAS 10.2.2.3
 	 */
-	split_count = (uint8_t *) calloc(vl_avail, sizeof(uint8_t));
+	split_count = (uint8_t *) calloc(vl_buffer, sizeof(uint8_t));
 	if (!split_count) {
 		OSM_LOG(p_mgr->p_log, OSM_LOG_ERROR,
 			"ERR AD24: cannot allocate memory for split_count, skip balancing\n");
@@ -2074,7 +1960,7 @@ static int dfsssp_remove_deadlocks(dfsssp_context_t * dfsssp_ctx)
 		goto ERROR;
 	}
 	/* initial state: paths for VLs won't be separated */
-	for (i = 0; i < ((vl_needed < vl_avail) ? vl_needed : vl_avail); i++)
+	for (i = 0; i < ((vl_needed < vl_avail) ? vl_needed : vl_buffer); i++)
 		split_count[i] = 1;
 	dfsssp_ctx->vl_split_count = split_count;
 	/* balancing is necessary if we have empty VLs */
@@ -2114,13 +2000,26 @@ static int dfsssp_remove_deadlocks(dfsssp_context_t * dfsssp_ctx)
 			paths_per_vl[to] = paths_per_vl[from];
 			paths_per_vl[from] = 0;
 		}
-	} else if (vl_needed > vl_avail) {
+	} else if (!dfsssp_ctx->only_best_effort && vl_needed > vl_avail) {
 		/* routing not possible, a further development would be the LASH-TOR approach (update: LASH-TOR isn't possible, there is a mistake in the theory) */
 		OSM_LOG(p_mgr->p_log, OSM_LOG_ERROR,
 			"ERR AD25: Not enough VLs available (avail=%d, needed=%d); Stopping dfsssp routing!\n",
 			vl_avail, vl_needed);
 		err = 1;
 		goto ERROR;
+	} else if (dfsssp_ctx->only_best_effort && vl_needed > vl_avail) {
+		OSM_LOG(p_mgr->p_log, OSM_LOG_INFO,
+			"Not enough VLs available (avail=%d, needed=%d); Best effort deadlock removal only, spreading additional ones across remaining layers\n",
+			vl_avail, vl_needed);
+		from = vl_buffer - 1;
+		bound = paths_per_vl[from];
+		for(i = 0; i <= bound; i++) {
+			to = rand() % vl_avail;	
+			if(vltable_change_vl(srcdest2vl_table, from, to, 1))
+				break;
+			paths_per_vl[from]--;
+			paths_per_vl[to]++;
+		}
 	}
 	/* else { no balancing } */
 
@@ -2134,7 +2033,7 @@ static int dfsssp_remove_deadlocks(dfsssp_context_t * dfsssp_ctx)
 			"Approx. #paths per VL (after balancing):\n");
 		j = 0;
 		count = 1; /* to prevent div. by 0 */
-		for (i = 0; i < vl_avail; i++) {
+		for (i = 0; i < vl_buffer; i++) {
 			if (split_count[i] > 0) {
 				j = i;
 				count = split_count[i];
@@ -2409,7 +2308,7 @@ static int dfsssp_do_dijkstra_routing(void *context)
 			update_weights(p_mgr, adj_list, adj_list_size);
 
 			if (OSM_LOG_IS_ACTIVE_V2(p_mgr->p_log, OSM_LOG_DEBUG))
-				dfsssp_print_graph(p_mgr, adj_list,
+				print_graph(p_mgr, adj_list,
 						   adj_list_size);
 		}
 	}
@@ -2476,7 +2375,7 @@ ERROR:
    for the spanning tree, performing a dijkstra step with this sw as root,
    and calculating the mcast table for MLID
 */
-static ib_api_status_t dfsssp_do_mcast_routing(void * context,
+ib_api_status_t dfsssp_do_mcast_routing(void * context,
 					       osm_mgrp_box_t * mbox)
 {
 	dfsssp_context_t *dfsssp_ctx = (dfsssp_context_t *) context;
@@ -2639,19 +2538,23 @@ static uint8_t get_dfsssp_sl(void *context, uint8_t hint_for_default_sl,
 		srcdest2vl_table = (vltable_t *) (dfsssp_ctx->srcdest2vl_table);
 		vl_split_count = (uint8_t *) (dfsssp_ctx->vl_split_count);
 	}
-	else
+	else {
 		return hint_for_default_sl;
+	}
 
 	src_port = osm_get_port_by_lid(p_mgr->p_subn, slid);
-	if (!src_port)
+	if (!src_port) {
 		return hint_for_default_sl;
+	}
 
 	dest_port = osm_get_port_by_lid(p_mgr->p_subn, dlid);
-	if (!dest_port)
+	if (!dest_port) {
 		return hint_for_default_sl;
+	}	
 
-	if (!srcdest2vl_table)
+	if (!srcdest2vl_table) {
 		return hint_for_default_sl;
+	}
 
 	res = vltable_get_vl(srcdest2vl_table, slid, dlid);
 
@@ -2660,12 +2563,15 @@ static uint8_t get_dfsssp_sl(void *context, uint8_t hint_for_default_sl,
 	   the number of VLs to use for certain traffic
 	 */
 	if (res > -1) {
-		if (vl_split_count[res] > 1)
-			return (uint8_t) (res + rand()%(vl_split_count[res]));
-		else
+		if (vl_split_count[res] >= 2) {
+			uint8_t temp = (uint8_t) (res + rand()%(vl_split_count[res]));
+			return temp;
+		} else {
 			return (uint8_t) res;
-	} else
+		}
+	} else {
 		return hint_for_default_sl;
+	}
 }
 
 static dfsssp_context_t *dfsssp_context_create(osm_opensm_t * p_osm,
@@ -2684,6 +2590,8 @@ static dfsssp_context_t *dfsssp_context_create(osm_opensm_t * p_osm,
 		dfsssp_ctx->adj_list_size = 0;
 		dfsssp_ctx->srcdest2vl_table = NULL;
 		dfsssp_ctx->vl_split_count = NULL;
+                dfsssp_ctx->max_vls = dfsssp_ctx->p_mgr->p_subn->opt.dfsssp_max_vls;
+        dfsssp_ctx->only_best_effort = dfsssp_ctx->p_mgr->p_subn->opt.dfsssp_best_effort;
 	} else {
 		OSM_LOG(p_osm->sm.ucast_mgr.p_log, OSM_LOG_ERROR,
 			"ERR AD04: cannot allocate memory for dfsssp_ctx in dfsssp_context_create\n");

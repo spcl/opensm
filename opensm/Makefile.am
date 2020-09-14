@@ -42,7 +42,7 @@ opensm_SOURCES = main.c osm_console_io.c osm_console.c osm_db_files.c \
 		 osm_vl_arb_rcv.c st.c osm_perfmgr.c osm_perfmgr_db.c \
 		 osm_event_plugin.c osm_dump.c osm_ucast_cache.c \
 		 osm_qos_parser_y.y osm_qos_parser_l.l osm_qos_policy.c \
-		 osm_congestion_control.c
+		 osm_congestion_control.c osm_ucast_lnmp.c
 
 AM_YFLAGS:= -d
 
@@ -65,6 +65,7 @@ opensminclude_HEADERS = \
 	$(srcdir)/../include/opensm/osm_helper.h \
 	$(srcdir)/../include/opensm/osm_inform.h \
 	$(srcdir)/../include/opensm/osm_ucast_lash.h \
+	$(srcdir)/../include/opensm/osm_ucast_dfsssp.h \
 	$(srcdir)/../include/opensm/osm_lid_mgr.h \
 	$(srcdir)/../include/opensm/osm_log.h \
 	$(srcdir)/../include/opensm/osm_mad_pool.h \
