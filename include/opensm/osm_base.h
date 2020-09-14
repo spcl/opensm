@@ -282,6 +282,24 @@ BEGIN_C_DECLS
 #endif /* __WIN__ */
 /***********/
 
+/****d* OpenSM: OSM_DEFAULT_LNMP_CONF_FILE
+* NAME
+*	OSM_DEFAULT_LNMP_CONF_FILE
+*
+* DESCRIPTION
+*	Specifies the default file name for extra layered-non-minimal-paths configuration
+*
+* SYNOPSIS
+*/
+#ifdef __WIN__
+#define OSM_DEFAULT_LNMP_CONF_FILE strcat(GetOsmCachePath(), "osm-lnmp.conf")
+#elif defined(OPENSM_CONFIG_DIR)
+#define OSM_DEFAULT_LNMP_CONF_FILE OPENSM_CONFIG_DIR "/lnmp.conf"
+#else
+#define OSM_DEFAULT_LNMP_CONF_FILE "/etc/opensm/lnmp.conf"
+#endif /* __WIN__ */
+/***********/
+
 /****d* OpenSM: OSM_DEFAULT_PREFIX_ROUTES_FILE
 * NAME
 *	OSM_DEFAULT_PREFIX_ROUTES_FILE

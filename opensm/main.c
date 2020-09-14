@@ -186,7 +186,7 @@ static void show_usage(void)
 	       "          attempt to route with Min Hop unless 'no_fallback' is\n"
 	       "          included in the list of routing engines.\n"
 	       "          Supported engines: updn, dnup, file, ftree, lash, dor,\n"
-	       "                             torus-2QoS, nue, dfsssp, sssp\n\n");
+	       "                             torus-2QoS, nue, dfsssp, sssp, lnmp \n\n");
 	printf("--do_mesh_analysis\n"
 	       "          This option enables additional analysis for the lash\n"
 	       "          routing engine to precondition switch port assignments\n"
@@ -260,6 +260,10 @@ static void show_usage(void)
 	       "          This option defines the file name for the extra configuration\n"
 	       "          info needed for the torus-2QoS routing engine.   The default\n"
 	       "          name is \'"OSM_DEFAULT_TORUS_CONF_FILE"\'\n\n");
+	printf("--lnmp_config <path to file>\n"
+	       "          This option defines the file name for the extra configuration\n"
+	       "          info needed for the layered-non-minimal-paths routing engine.  The default\n"
+	       "          name is \'"OSM_DEFAULT_LNMP_CONF_FILE"\'\n\n");
 	printf("--once, -o\n"
 	       "          This option causes OpenSM to configure the subnet\n"
 	       "          once, then exit.  Ports remain in the ACTIVE state.\n\n");
@@ -706,6 +710,7 @@ int main(int argc, char *argv[])
 		{"retries", 1, NULL, 8},
 		{"log_prefix", 1, NULL, 9},
 		{"torus_config", 1, NULL, 10},
+        {"lnmp_config", 1, NULL, 11},
 		{"guid_routing_order_no_scatter", 0, NULL, 13},
 		{"nue_max_num_vls", 1, NULL, 15},
 		{"dump_files_dir", 1, NULL, 17},
@@ -1160,6 +1165,10 @@ int main(int argc, char *argv[])
 			SET_STR_OPT(opt.torus_conf_file, optarg);
 			printf("Torus-2QoS config file = %s\n", opt.torus_conf_file);
 			break;
+        case 11:
+            SET_STR_OPT(opt.lnmp_conf_file, optarg);
+            printf("LNMP config file = %s\n", opt.lnmp_conf_file);
+            break;
 		case 13:
 			opt.guid_routing_order_no_scatter = TRUE;
 			break;
