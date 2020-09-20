@@ -65,6 +65,7 @@ opensminclude_HEADERS = \
 	$(srcdir)/../include/opensm/osm_helper.h \
 	$(srcdir)/../include/opensm/osm_inform.h \
 	$(srcdir)/../include/opensm/osm_ucast_lash.h \
+	$(srcdir)/../include/opensm/osm_ucast_dfsssp.h \
 	$(srcdir)/../include/opensm/osm_lid_mgr.h \
 	$(srcdir)/../include/opensm/osm_log.h \
 	$(srcdir)/../include/opensm/osm_mad_pool.h \

@@ -710,7 +710,7 @@ int main(int argc, char *argv[])
 		{"retries", 1, NULL, 8},
 		{"log_prefix", 1, NULL, 9},
 		{"torus_config", 1, NULL, 10},
-        {"lnmp_config", 1, NULL, 11},
+        {"lnmp_config", 1, NULL, 18},
 		{"guid_routing_order_no_scatter", 0, NULL, 13},
 		{"nue_max_num_vls", 1, NULL, 15},
 		{"dump_files_dir", 1, NULL, 17},
@@ -1165,7 +1165,7 @@ int main(int argc, char *argv[])
 			SET_STR_OPT(opt.torus_conf_file, optarg);
 			printf("Torus-2QoS config file = %s\n", opt.torus_conf_file);
 			break;
-        case 11:
+        case 18:
             SET_STR_OPT(opt.lnmp_conf_file, optarg);
             printf("LNMP config file = %s\n", opt.lnmp_conf_file);
             break;
