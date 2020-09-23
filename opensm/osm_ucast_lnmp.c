@@ -612,7 +612,7 @@ ERROR:
     return -1;
 }
 
-int lnmp_generate_layer(uint8_t layer_number, lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_mgr)
+int lnmp_generate_layer(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_mgr, uint8_t layer_number, cl_map_t **sdp_priority_queue)
 {
    // TODO
    return 0;
@@ -625,6 +625,28 @@ static int lnmp_perform_routing(void *context)
     vertex_t *adj_list = (vertex_t *) lnmp_context->adj_list;
     uint32_t adj_list_size = lnmp_context->adj_list_size;
     uint8_t layer_number = 0;
+
+	cl_qmap_t *sw_tbl = &p_mgr->p_subn->sw_guid_tbl;
+
+	/* reset the new_lft for each switch */
+	for (item = cl_qmap_head(sw_tbl); item != cl_qmap_end(sw_tbl);
+	     item = cl_qmap_next(item)) {
+		sw = (osm_switch_t *) item;
+		/* initialize LIDs in buffer to invalid port number */
+		memset(sw->new_lft, OSM_NO_PATH, sw->max_lid_ho + 1);
+		/* initialize LFT and hop count for bsp0/esp0 of the switch */
+		min_lid_ho = cl_ntoh16(osm_node_get_base_lid(sw->p_node, 0));
+		lmc = osm_node_get_lmc(sw->p_node, 0);
+		for (i = min_lid_ho; i < min_lid_ho + (1 << lmc); i++) {
+			/* for each switch the port to the 'self'lid is the management port 0 */
+			sw->new_lft[i] = 0;
+			/* the hop count to the 'self'lid is 0 for each switch */
+			osm_switch_set_hops(sw, i, 0, 0);
+		}
+	}
+
+   /* reset link wights */
+     
     cl_map_t **sdp_priority_queue = NULL; /* array that uses the level as index and points to sorted maps, which in turn go from added paths according to first_base_lid concat second_base_lid to their usage in the current layer*/
     sdp_priority_queue = (cl_map_t **) (malloc((lnmp_context->number_of_layers + 1) * sizeof(cl_map_t *)));
 	if (!sdp_priority_queue) {
