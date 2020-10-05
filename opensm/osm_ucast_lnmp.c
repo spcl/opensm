@@ -35,11 +35,126 @@ typedef struct lnmp_context {
     vertex_t **layers;
 } lnmp_context_t;
 
+typedef struct node {
+    struct node *l, *r;
+    uint64_t value;
+    uint8_t height; // maximum height is <1.45 * log (n) <= 1.45 * 64 < 2*64 = 2**7
+} node_t;
+
 typedef struct sd_pair {
     uint16_t first_base_lid;
     uint16_t second_base_lid;
     uint16_t priority_level;
 } sd_pair_t;
+
+static node_t *new_node(uint64_t val) 
+{
+    node_t *new = (node_t *) malloc(sizeof(node_t));
+    new->l = NULL;
+    new->r = NULL;
+    new->value = val;
+    new->height = 1;
+    return new;
+}
+
+static void destroy_node(node_t *node) 
+{
+    if(node->l)
+        destroy_node(node->l);
+    if(node->r)
+        destroy_node(node->r);
+    free(node);
+}
+
+static uint8_t get_height(node_t *root)
+{
+    return (root) ? root->height : 0;
+}
+
+static void reset_height(node_t *root)
+{
+    if(root)
+        root-> 1 + max(get_height(root->l), get_height(root->r));
+}
+
+static void right_rotate(node_t **root)
+{
+    node_t *temp1 = (*root)->l;
+    node_t *temp2 = temp1->r;
+    temp1->r = (*root);
+    (*root)->l = temp2;
+    reset_height(temp1);
+    reset_height(*root);
+    *root = temp1;
+}
+
+static void left_rotate(node_t **root)
+{
+    node_t *temp1 = (*root)->r;
+    node_t *temp2 = temp1->l;
+    temp1->l = (*root);
+    (*root)->r = temp2;
+    reset_height(temp1);
+    reset_height(*root);
+    *root = temp1;
+}
+
+static int get_balance(node_t *root)
+{
+    return (root) ? get_height(root->left) - get_height(root->right) : 0;
+}
+
+static void insert(node_t **root, node_t *node) 
+{
+    if(!*root)
+        *root = node;
+    else
+        insert(node->value <= (*root)->value ? &(*root)->l : &(*root)->r, node);
+
+    int balance = get_balance(*root);
+
+    if(balance > 1 && node->value < (*root)->l->value) {
+        right_rotate(root); 
+    } else if (balance < -1 && node->value > (*root)->r->value) {
+        left_rotate(root);
+    } else if (balance > 1 && node->value > (*root)->l->value) {
+        left_rotate(&(*root)->left);
+        right_rotate(root);
+    } else if (balance < -1 && node->value > (*root)->r->value) {
+        right_rotate(&(*root)->right);
+        left_rotate(root);
+    }
+}
+
+static void delete(node_t **root, int64_t val)
+{
+    if(!*root)
+        return;
+    //TODO
+}
+
+static void find(node_t *root, node_t **node, int64_t val) 
+{
+    if(!root)
+        node = NULL;
+    else if(root->value == val)
+        *node = root;
+    else
+        find(val <= root->value ? root->l : root->r, node, val);
+}
+
+/*
+ * if direction == FALSE ? decreasing : increasing
+ */
+static void add_from_offset(node_t *root, uint32 *index, uint64_t *array, boolean_t direction)
+{
+    if(root) {
+        array[*index] = root->value;
+        (direction) ? (*index)++: (*index)--;
+        add_from_offset(root->l, index, array, direction);
+        add_from_offset(root->r, index, array, direction);
+    }
+}
 
 static lnmp_context_t *lnmp_context_create(osm_opensm_t *p_osm, osm_routing_engine_type_t routing_type)
 {
@@ -621,14 +736,37 @@ ERROR:
     return -1;
 }
 
-int getNextSwitchPair(lnmp_context_t *lnmp_context, sd_pair_t *pair, cl_list_t *switch_pairs, cl_map_t **sdp_priority_queue) {
-    
+/*
+ * Returns the level of pair in the priority queue, default is 0
+ */
+static uint8_t get_level(cl_map_t **sdp_priority_queue, uint8_t number_of_levels, sd_pair_t *pair) 
+{
+    uint8_t current_level = 0;
+    uint64_t key = ((uint64_t) pair->first_base_lid << 32) + (uint64_t) pair->second_base_lid;
+
+    for (current_level = 0; current_level < number_of_levels; current_level++) {
+        if (cl_map_get(sdp_priority_queue[current_level], key)) {
+            return current_level;
+        }
+    }
+    return 0;
+}
+
+int get_next_switch_pair(lnmp_context_t *lnmp_context, sd_pair_t *pair, cl_list_t *switch_pairs, cl_map_t **sdp_priority_queue) {
+    cl_map_iterator_t sdp_itr; 
+    cl_map_iterator_t sdp_end; 
+    uint8_t number_of_levels = (lnmp_context->number_of_layers + 1);
+    cl_list_iterator_t switch_pairs_itr = cl_list_head(switch_pairs);
+    cl_list_iterator_t switch_pairs_end = cl_list_end(switch_pairs);
+    uint8_t best_level = 0, current_level = 0;
+
+
     return 0;
 }
 /*
  * Fisher - Yates shuffle
  */
-void randomizeSwitchPairs(uint64_t *switch_pairs, uint64_t switch_pairs_size) 
+void randomize_switch_pairs(uint64_t *switch_pairs, uint64_t switch_pairs_size) 
 {
     uint64_t i = 0, j = 0, temp = 0;
     for(i = switch_pairs_size - 1; i > 0; i--) {
@@ -638,6 +776,39 @@ void randomizeSwitchPairs(uint64_t *switch_pairs, uint64_t switch_pairs_size)
         switch_pairs[j] = temp;
     }
 
+}
+
+static cl_list_t *generate_switch_pairs_list(lnmp_context_t *lnmp_context, uint32_t number_of_switch_pairs, node_t **sdp_priority_queue, uint64_t *switch_pairs)
+{
+    uint8_t layer_number = 0, lmc = 0;
+    uint32_t index = number_of_switch_pairs - 1;
+    cl_heap_item_t *i = NULL;
+    uint64_t pair = NULL;
+    boolean_t direction = FALSE; // = decreasing
+
+    cl_list_t **temp_prio = NULL; /* array that uses the level as index and points to sorted maps, which in turn go from added paths according to first_base_lid concat second_base_lid to their usage in the current layer*/
+    temp_prio = (cl_list_t **) (malloc((lnmp_context->number_of_layers + 1) * sizeof(cl_list_t *)));
+    if (!temp_prio)
+        goto ERROR;
+
+    for(layer_number = 0; layer_number < lnmp_context->number_of_layers +1; layer_number++) {
+        temp_prio[layer_number] = (cl_list_t *) malloc(sizeof(cl_list_t));
+        if(!temp_prio[layer_number])
+            goto ERROR;
+        cl_list_construct(temp_prio[layer_number]);
+        if(cl_list_init(temp_prio[layer_number], cl_map_count(sdp_priority_queue[layer_number])) != CL_SUCCESS)
+            goto ERROR;
+    }
+
+    for(layer_number = lnmp_context->number_of_layers; layer_number > 0; layer_number--) {
+        add_from_offset(sdp_priority_queue[layer_number], &index, switch_pairs, direction);
+    }
+
+
+
+ERROR:
+    // TODO
+    return NULL;
 }
 
 int lnmp_generate_layer(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_mgr, uint8_t layer_number, cl_map_t **sdp_priority_queue, uint32_t **weights)
@@ -656,12 +827,12 @@ int lnmp_generate_layer(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_mgr, ui
     if (!pair) {
         goto ERROR;
     }
-    
+
     switch_pairs_temp = (uint64_t *) calloc(switch_pairs_size, sizeof(uint64_t));
     if (!switch_pairs_temp) {
         goto ERROR;
     }
-    
+
     for (i = 1; i < adj_list_size; i++) {
         for (j = 1; j < adj_list_size; j++) {
             if (i == j)
@@ -669,9 +840,9 @@ int lnmp_generate_layer(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_mgr, ui
             switch_pairs_temp[(i-1) * (adj_list_size -1) + j - 1] = ((uint64_t) i << 32) + (uint64_t) j;
         }
     }
-    
-    randomizeSwitchPairs(switch_pairs_temp, switch_pairs_size);
-    
+
+    randomize_switch_pairs(switch_pairs_temp, switch_pairs_size);
+
     // TODO check success
     cl_list_init(&switch_pairs, switch_pairs_size);
 
@@ -679,7 +850,7 @@ int lnmp_generate_layer(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_mgr, ui
 
     free(switch_pairs_temp);
 
-    
+
     while(!cl_is_list_empty(&switch_pairs) && added_paths < lnmp_context->maximum_number_of_paths) {
         if(getNextSwitchPair(lnmp_context, pair, &switch_pairs, sdp_priority_queue)) {
             // do something if fails?
@@ -738,7 +909,11 @@ static int lnmp_perform_routing(void *context)
     }
     // construct the maps for the different levels of the priority queue
     for(layer_number = 0; layer_number < lnmp_context->number_of_layers +1; layer_number++) {
+        sdp_priority_queue[layer_number] = (cl_map_t *) malloc(sizeof(cl_map_t));
+        if(!sdp_priotiy_queue[layer_number])
+            goto ERROR;
         cl_map_construct(sdp_priority_queue[layer_number]);
+        cl_map_init(sdp_priority_queue[layer_number]);
     }
 
     //allocate weight_matrix and initialize to zero, remember that the first position in adj_list is reserved
