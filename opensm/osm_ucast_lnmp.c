@@ -55,6 +55,8 @@ typedef struct sd_pair {
 static node_t *new_node(uint64_t val) 
 {
     node_t *new = (node_t *) malloc(sizeof(node_t));
+    if (!new)
+        return NULL;
     new->l = NULL;
     new->r = NULL;
     new->value = val;
@@ -188,6 +190,16 @@ static void find(node_t *root, node_t **node, int64_t val)
         *node = root;
     else
         find(val <= root->value ? root->l : root->r, node, val);
+}
+
+static boolean_t contains(node_t *root, int64_t val) 
+{
+    if(!root)
+        return FALSE;
+    else if(root->value == val)
+        return TRUE;
+    else
+        return contains(val <= root->value ? root->l : root->r, val);
 }
 
 /*
@@ -790,13 +802,12 @@ ERROR:
 /*
  * Returns the level of pair in the priority queue, default is 0
  */
-static uint8_t get_level(cl_map_t **sdp_priority_queue, uint8_t number_of_levels, sd_pair_t *pair) 
+static uint8_t get_level(node_t **sdp_priority_queue, uint8_t number_of_levels, uint64_t key) 
 {
     uint8_t current_level = 0;
-    uint64_t key = ((uint64_t) pair->first_base_lid << 32) + (uint64_t) pair->second_base_lid;
 
     for (current_level = 0; current_level < number_of_levels; current_level++) {
-        if (cl_map_get(sdp_priority_queue[current_level], key)) {
+        if (contains(sdp_priority_queue[current_level], key)) {
             return current_level;
         }
     }
@@ -814,6 +825,7 @@ int get_next_switch_pair(lnmp_context_t *lnmp_context, sd_pair_t *pair, cl_list_
 
     return 0;
 }
+
 /*
  * Fisher - Yates shuffle
  */
@@ -829,55 +841,48 @@ void randomize_switch_pairs(uint64_t *switch_pairs, uint64_t switch_pairs_size)
 
 }
 
-static cl_list_t *generate_switch_pairs_list(lnmp_context_t *lnmp_context, uint32_t number_of_switch_pairs, node_t **sdp_priority_queue, uint64_t *switch_pairs)
+static void *generate_switch_pairs_list(lnmp_context_t *lnmp_context, uint32_t number_of_switch_pairs, node_t **sdp_priority_queue, uint64_t *switch_pairs)
 {
+    uint32_t adj_list_size = lnmp_context->adj_list_size;
     uint8_t layer_number = 0, lmc = 0;
     uint32_t index = number_of_switch_pairs - 1;
-    cl_heap_item_t *i = NULL;
-    uint64_t pair = NULL;
+    uint64_t key;
     boolean_t direction = FALSE; // = decreasing
-
-    cl_list_t **temp_prio = NULL; /* array that uses the level as index and points to sorted maps, which in turn go from added paths according to first_base_lid concat second_base_lid to their usage in the current layer*/
-    temp_prio = (cl_list_t **) (malloc((lnmp_context->number_of_layers + 1) * sizeof(cl_list_t *)));
-    if (!temp_prio)
-        goto ERROR;
-
-    for(layer_number = 0; layer_number < lnmp_context->number_of_layers +1; layer_number++) {
-        temp_prio[layer_number] = (cl_list_t *) malloc(sizeof(cl_list_t));
-        if(!temp_prio[layer_number])
-            goto ERROR;
-        cl_list_construct(temp_prio[layer_number]);
-        if(cl_list_init(temp_prio[layer_number], cl_map_count(sdp_priority_queue[layer_number])) != CL_SUCCESS)
-            goto ERROR;
-    }
+    uint32_t i = 0, j = 0;
 
     for(layer_number = lnmp_context->number_of_layers; layer_number > 0; layer_number--) {
         add_from_offset(sdp_priority_queue[layer_number], &index, switch_pairs, direction);
     }
-
-
+    
+    for (i = 1; i < adj_list_size; i++) {
+        for (j = 1; j < adj_list_size; j++) {
+            if (i == j)
+                continue;
+            key = ((uint64_t) i << 32) + (uint64_t) j;
+            if (!get_level(sdp_priority_queue, lnmp_context->number_of_layers + 1, key)) //true if key is on level 0
+                switch_pairs[index--] = key;
+        }
+    }
+    //index should have overflown as we decrement after inserting at position 0
+    if(index != (uint32_t) -1)
+        goto ERROR;
 
 ERROR:
     // TODO
     return NULL;
 }
 
-int lnmp_generate_layer(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_mgr, uint8_t layer_number, cl_map_t **sdp_priority_queue, uint32_t **weights)
+int lnmp_generate_layer(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_mgr, uint8_t layer_number, node_t **sdp_priority_queue, uint32_t **weights)
 {
     /* TODO Check if there is need to clear the layer beforehand */
 
     vertex_t *layer = lnmp_context->layers[layer_number];
     uint32_t adj_list_size = lnmp_context->adj_list_size;
-    sd_pair_t *pair;
+    uint64_t pair;
     uint64_t *switch_pairs_temp;
     cl_list_t switch_pairs;
     uint32_t switch_pairs_size = (adj_list_size -1) * (adj_list_size -2), added_paths = 0;
     uint32_t i = 0, j = 0;
-
-    pair = (sd_pair_t *) malloc(sizeof(sd_pair_t));
-    if (!pair) {
-        goto ERROR;
-    }
 
     switch_pairs_temp = (uint64_t *) calloc(switch_pairs_size, sizeof(uint64_t));
     if (!switch_pairs_temp) {
@@ -903,7 +908,7 @@ int lnmp_generate_layer(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_mgr, ui
 
 
     while(!cl_is_list_empty(&switch_pairs) && added_paths < lnmp_context->maximum_number_of_paths) {
-        if(getNextSwitchPair(lnmp_context, pair, &switch_pairs, sdp_priority_queue)) {
+        if(get_next_switch_pair(lnmp_context, pair, &switch_pairs, sdp_priority_queue)) {
             // do something if fails?
             continue;
         }
@@ -951,22 +956,13 @@ static int lnmp_perform_routing(void *context)
 
     /* reset link wights */
 
-    cl_map_t **sdp_priority_queue = NULL; /* array that uses the level as index and points to sorted maps, which in turn go from added paths according to first_base_lid concat second_base_lid to their usage in the current layer*/
-    sdp_priority_queue = (cl_map_t **) (malloc((lnmp_context->number_of_layers + 1) * sizeof(cl_map_t *)));
+    node_t **sdp_priority_queue = NULL; /* array that uses the level as index and points to sorted binary trees (node_t), which in turn go from added paths according to first_base_lid concat second_base_lid to their usage in the current layer*/
+    sdp_priority_queue = (node_t **) calloc(lnmp_context->number_of_layers + 1, sizeof(node_t *));
     if (!sdp_priority_queue) {
         OSM_LOG(p_mgr->p_log, OSM_LOG_ERROR,
                 "ERR AD02: cannot allocate memory for priority queue switch pairs\n");
         goto ERROR;
     }
-    // construct the maps for the different levels of the priority queue
-    for(layer_number = 0; layer_number < lnmp_context->number_of_layers +1; layer_number++) {
-        sdp_priority_queue[layer_number] = (cl_map_t *) malloc(sizeof(cl_map_t));
-        if(!sdp_priotiy_queue[layer_number])
-            goto ERROR;
-        cl_map_construct(sdp_priority_queue[layer_number]);
-        cl_map_init(sdp_priority_queue[layer_number]);
-    }
-
     //allocate weight_matrix and initialize to zero, remember that the first position in adj_list is reserved
 
     weights = (uint32_t **) malloc((adj_list_size-1) * sizeof(uint32_t *));
