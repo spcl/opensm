@@ -47,6 +47,11 @@ typedef struct sd_pair {
     uint16_t priority_level;
 } sd_pair_t;
 
+/*
+ * ---------------------------------------------------
+ * AVL Tree Implementation
+ * ---------------------------------------------------
+ */
 static node_t *new_node(uint64_t val) 
 {
     node_t *new = (node_t *) malloc(sizeof(node_t));
@@ -74,7 +79,7 @@ static uint8_t get_height(node_t *root)
 static void reset_height(node_t *root)
 {
     if(root)
-        root-> 1 + max(get_height(root->l), get_height(root->r));
+        root->height = 1 + max(get_height(root->l), get_height(root->r));
 }
 
 static void right_rotate(node_t **root)
@@ -101,7 +106,7 @@ static void left_rotate(node_t **root)
 
 static int get_balance(node_t *root)
 {
-    return (root) ? get_height(root->left) - get_height(root->right) : 0;
+    return (root) ? get_height(root->l) - get_height(root->r) : 0;
 }
 
 static void insert(node_t **root, node_t *node) 
@@ -118,19 +123,61 @@ static void insert(node_t **root, node_t *node)
     } else if (balance < -1 && node->value > (*root)->r->value) {
         left_rotate(root);
     } else if (balance > 1 && node->value > (*root)->l->value) {
-        left_rotate(&(*root)->left);
+        left_rotate(&(*root)->l);
         right_rotate(root);
-    } else if (balance < -1 && node->value > (*root)->r->value) {
-        right_rotate(&(*root)->right);
+    } else if (balance < -1 && node->value < (*root)->r->value) {
+        right_rotate(&(*root)->r);
         left_rotate(root);
     }
 }
 
-static void delete(node_t **root, int64_t val)
+static node_t *minValueNode(node_t *root) 
+{
+    while(root->l)
+        root = root->l;
+    return root;
+}
+
+static void delete_node(node_t **root, int64_t val)
 {
     if(!*root)
         return;
-    //TODO
+    if(val > (*root)->value)
+        delete_node(&(*root)->r, val);
+    else if (val < (*root)->value)
+        delete_node(&(*root)->l, val);
+    else {
+        if (!(*root)->l || !(*root)->r) {
+            node_t *temp = (*root)->l ? (*root)->l : (*root)->r;
+            free(*root);
+            if(!temp) {
+                *root = NULL;
+            } else {
+                *root = temp;
+            }
+        } else {
+            node_t *temp = minValueNode((*root)->r);
+            (*root)->value = temp->value;
+            delete_node(&(*root)->r, temp->value);
+        }
+    }
+    if(!*root)
+        return;
+
+    reset_height(*root);
+    int balance = get_balance(*root);
+
+    if(balance > 1 && get_balance((*root)->l) >= 0) {
+        right_rotate(root); 
+    } else if(balance > 1 && get_balance((*root)->l) < 0) {
+        left_rotate(&(*root)->l);
+        right_rotate(root);
+    } else if (balance < -1 && get_balance((*root)->r) <= 0) {
+        left_rotate(root);
+    } else if (balance < -1 && get_balance((*root)->r) > 0) {
+        right_rotate(&(*root)->r);
+        left_rotate(root);
+    }
 }
 
 static void find(node_t *root, node_t **node, int64_t val) 
@@ -146,7 +193,7 @@ static void find(node_t *root, node_t **node, int64_t val)
 /*
  * if direction == FALSE ? decreasing : increasing
  */
-static void add_from_offset(node_t *root, uint32 *index, uint64_t *array, boolean_t direction)
+static void add_from_offset(node_t *root, uint32_t *index, uint64_t *array, boolean_t direction)
 {
     if(root) {
         array[*index] = root->value;
@@ -155,6 +202,10 @@ static void add_from_offset(node_t *root, uint32 *index, uint64_t *array, boolea
         add_from_offset(root->r, index, array, direction);
     }
 }
+
+/*
+ * -------------------------------------------------
+ */
 
 static lnmp_context_t *lnmp_context_create(osm_opensm_t *p_osm, osm_routing_engine_type_t routing_type)
 {
