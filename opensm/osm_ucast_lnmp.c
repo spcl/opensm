@@ -828,12 +828,13 @@ int get_next_switch_pair(lnmp_context_t *lnmp_context, sd_pair_t *pair, cl_list_
 
 /*
  * Fisher - Yates shuffle
+ * end_index exclusive, start_index inclusive
  */
-void randomize_switch_pairs(uint64_t *switch_pairs, uint64_t switch_pairs_size) 
+void randomize_switch_pairs(uint64_t *switch_pairs, uint64_t start_index, uint64_t end_index) 
 {
     uint64_t i = 0, j = 0, temp = 0;
-    for(i = switch_pairs_size - 1; i > 0; i--) {
-        j = rand() % (i+1);
+    for(i = end_index - 1; i > start_index; i--) {
+        j = start_index + (rand() % (i+1 - start_index));
         temp = switch_pairs[i];
         switch_pairs[i] = switch_pairs[j];
         switch_pairs[j] = temp;
@@ -841,17 +842,22 @@ void randomize_switch_pairs(uint64_t *switch_pairs, uint64_t switch_pairs_size)
 
 }
 
-static void *generate_switch_pairs_list(lnmp_context_t *lnmp_context, uint32_t number_of_switch_pairs, node_t **sdp_priority_queue, uint64_t *switch_pairs)
+static int generate_switch_pairs_list(lnmp_context_t *lnmp_context, uint32_t number_of_switch_pairs, node_t **sdp_priority_queue, uint64_t *switch_pairs)
 {
     uint32_t adj_list_size = lnmp_context->adj_list_size;
     uint8_t layer_number = 0, lmc = 0;
-    uint32_t index = number_of_switch_pairs - 1;
+    uint32_t index = number_of_switch_pairs - 1; 
+    uint32_t prev_index = index;
     uint64_t key;
     boolean_t direction = FALSE; // = decreasing
     uint32_t i = 0, j = 0;
 
     for(layer_number = lnmp_context->number_of_layers; layer_number > 0; layer_number--) {
         add_from_offset(sdp_priority_queue[layer_number], &index, switch_pairs, direction);
+        if (prev_index != index) {
+            randomize_switch_pairs(switch_pairs, index + 1, prev_index + 1);
+        }
+        prev_index = index;
     }
     
     for (i = 1; i < adj_list_size; i++) {
@@ -863,13 +869,19 @@ static void *generate_switch_pairs_list(lnmp_context_t *lnmp_context, uint32_t n
                 switch_pairs[index--] = key;
         }
     }
+    
     //index should have overflown as we decrement after inserting at position 0
     if(index != (uint32_t) -1)
         goto ERROR;
 
+    if(prev_index != index)
+        randomize_switch_pairs(switch_pairs, index + 1, prev_index + 1);
+
+    return 0;
+
 ERROR:
     // TODO
-    return NULL;
+    return -1;
 }
 
 int lnmp_generate_layer(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_mgr, uint8_t layer_number, node_t **sdp_priority_queue, uint32_t **weights)
@@ -879,41 +891,25 @@ int lnmp_generate_layer(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_mgr, ui
     vertex_t *layer = lnmp_context->layers[layer_number];
     uint32_t adj_list_size = lnmp_context->adj_list_size;
     uint64_t pair;
-    uint64_t *switch_pairs_temp;
-    cl_list_t switch_pairs;
+    uint64_t *switch_pairs;
     uint32_t switch_pairs_size = (adj_list_size -1) * (adj_list_size -2), added_paths = 0;
+    uint32_t current_switch_pair = 0;
     uint32_t i = 0, j = 0;
 
-    switch_pairs_temp = (uint64_t *) calloc(switch_pairs_size, sizeof(uint64_t));
-    if (!switch_pairs_temp) {
+    switch_pairs = (uint64_t *) calloc(switch_pairs_size, sizeof(uint64_t));
+    if (!switch_pairs) {
         goto ERROR;
     }
+    
+    if(!generate_switch_pairs_list(lnmp_context, switch_pairs_size, sdp_priority_queue, switch_pairs))
+        goto ERROR;
+    
 
-    for (i = 1; i < adj_list_size; i++) {
-        for (j = 1; j < adj_list_size; j++) {
-            if (i == j)
-                continue;
-            switch_pairs_temp[(i-1) * (adj_list_size -1) + j - 1] = ((uint64_t) i << 32) + (uint64_t) j;
-        }
+    while(current_switch_pair < switch_pairs_size && added_paths < lnmp_context->maximum_number_of_paths) {
+        pair = switch_pairs[current_switch_pair++]; 
+
+
     }
-
-    randomize_switch_pairs(switch_pairs_temp, switch_pairs_size);
-
-    // TODO check success
-    cl_list_init(&switch_pairs, switch_pairs_size);
-
-    cl_list_insert_array_head(&switch_pairs, switch_pairs_temp, switch_pairs_size, sizeof(uint64_t));
-
-    free(switch_pairs_temp);
-
-
-    while(!cl_is_list_empty(&switch_pairs) && added_paths < lnmp_context->maximum_number_of_paths) {
-        if(get_next_switch_pair(lnmp_context, pair, &switch_pairs, sdp_priority_queue)) {
-            // do something if fails?
-            continue;
-        }
-    }
-
 
 
     return 0;
