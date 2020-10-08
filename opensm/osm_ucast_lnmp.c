@@ -39,7 +39,7 @@ typedef struct node {
     struct node *l, *r;
     uint64_t value;
     uint8_t height; // maximum height is <1.45 * log (n) <= 1.45 * 64 < 2*64 = 2**7
-} node_t;
+} node_t
 
 typedef struct sd_pair {
     uint16_t first_base_lid;
@@ -814,18 +814,6 @@ static uint8_t get_level(node_t **sdp_priority_queue, uint8_t number_of_levels, 
     return 0;
 }
 
-int get_next_switch_pair(lnmp_context_t *lnmp_context, sd_pair_t *pair, cl_list_t *switch_pairs, cl_map_t **sdp_priority_queue) {
-    cl_map_iterator_t sdp_itr; 
-    cl_map_iterator_t sdp_end; 
-    uint8_t number_of_levels = (lnmp_context->number_of_layers + 1);
-    cl_list_iterator_t switch_pairs_itr = cl_list_head(switch_pairs);
-    cl_list_iterator_t switch_pairs_end = cl_list_end(switch_pairs);
-    uint8_t best_level = 0, current_level = 0;
-
-
-    return 0;
-}
-
 /*
  * Fisher - Yates shuffle
  * end_index exclusive, start_index inclusive
@@ -881,6 +869,125 @@ static int generate_switch_pairs_list(lnmp_context_t *lnmp_context, uint32_t num
 
 ERROR:
     // TODO
+    return -1;
+}
+
+static void allocate_new_path(uint32_t **path, uint8_t length)
+{
+    *path = (uint32_t *) calloc(length, sizeof(uint32_t);
+}
+static void clean_path(uint32_t *path, uint8_t length)
+{
+    uint8_t i = 0;
+    for(i = 0; i < length; i++) {
+        path[i] = 0;
+    }
+}
+static void free_path(uint32_t **path)
+{
+   free(*path); 
+   *path = NULL;
+}
+static boolean_t path_contains(uint32_t *path; uint8_t length, uint32_t sw)
+{
+    uint8_t i = 0;
+    for(i = 0; i < length; i++) {
+        if(path[i]==0)
+            break;
+        if(path[i] == sw)
+            return true;
+    }
+    return false;
+}
+static void copy_path(uint32_t *src_path, uint32_t *dest_path, uint8_t length)
+{
+    uint8_t i;
+    for(i = 0; i < length; i++) {
+        dest_path[i] = src_path[i];
+    }
+}
+
+static uint64_t get_path_weight(uint32_t *path, uint8_t path_length, uint32_t **weights)
+{
+    uint64_t weight = 0;
+    uint8_t i = 0;
+    for(i = 0; i < path_length -1; i++) {
+        if(!path[i+1])
+            break;
+        weight += weights[path[i]i-1][path[i+1]-1];
+    }
+    return weight;
+}
+        
+static int find_path(lnmp_context_t *lnmp_context, uint32_t **weights, uint32_t **best_path, uint32_t src, uint32_t dst)
+{
+    cl_list_t paths;
+    // We always initialize paths of max length and try to reuse paths in order to reduce the number of callocs
+    cl_list_t path_pool;
+    cl_list_init(&paths, 10);
+    cl_list_init(&path_pool, 10);
+    // Includes both source and destination switch
+    uint8_t max_path_length = lnmp_context->max_length +1;
+    uint8_t min_path_length = lnmp_context->min_length +1;
+    uint64_t best_path_weight = 0xffffffff, current_path_weight = 0;
+    uint32_t *current_path, *temp_path;
+    uint32_t last = 0;
+    uint8_t i = 0;
+    vertex_t *currrent;
+    link_t *link;
+
+    allocate_new_path(&current_path, max_path_length);
+    if(!current_path)
+        goto ERROR;
+    currentpath[0] = src;
+    cl_list_insert_tail(&paths, currentpath);
+    
+    while(current_path = (uint32_t *) cl_list_remove_head(&paths)) {
+        for(i = max_path_length - 1; i >= 0; i--) {
+            if(last = current_path[i])
+                break;
+        }
+
+        current_path_weight = get_path_weight(current_path, weights);
+        if(last == dst) {
+            if(i+1 >= min_path_length && current_path_weight < best_path_weight) {
+                best_path_weight = current_path_weight;
+                if(*best_path) {
+                    clean_path(*best_path, max_path_length);
+                    cl_list_insert_tail(&path_pool, *best_path);
+                } 
+                *best_path = current_path;
+            } else {
+                clean_path(current_path, max_path_length);
+                cl_list_insert_tail(&path_pool, current_path);
+            }
+        } else {
+            if(i+1 < max_path_length) {
+                // TODO check if path already fixed
+                current = &lnmp_context->adj_list[last];
+                for(link = current->links; link != NULL; link = link->next) {
+                    if(!path_contains(current_path, max_path_length; link->to) && current_path_weight + weights[last - 1][link->to - 1] < best_path_weight) {
+                        temp_path = (uint32_t *) cl_list_remove_head(&path_poll);
+                        if(!temp_path)
+                            allocate_new_path(&current_path, max_path_length);
+                        if(!temp_path)
+                            goto ERROR;
+                        copy_path(current_path, temp_path, i+1);
+                        temp_path[i+1] = link->to;
+                        cl_list_insert_tail(&paths, temp_path);
+                    }
+                }
+            }
+            clean_path(current_path, max_path_length);
+            cl_list_insert_tail(&path_pool, current_path);
+        }
+    }
+    
+    //TODO cleanup
+
+
+    return 0;
+ERROR:
     return -1;
 }
 
