@@ -39,7 +39,7 @@ typedef struct node {
     struct node *l, *r;
     uint64_t value;
     uint8_t height; // maximum height is <1.45 * log (n) <= 1.45 * 64 < 2*64 = 2**7
-} node_t
+} node_t;
 
 typedef struct sd_pair {
     uint16_t first_base_lid;
@@ -874,13 +874,15 @@ ERROR:
 
 static void allocate_new_path(uint32_t **path, uint8_t length)
 {
-    *path = (uint32_t *) calloc(length, sizeof(uint32_t);
+    *path = (uint32_t *) calloc(length, sizeof(uint32_t));
 }
 static void clean_path(uint32_t *path, uint8_t length)
 {
     uint8_t i = 0;
-    for(i = 0; i < length; i++) {
-        path[i] = 0;
+    if(path) {
+        for(i = 0; i < length; i++) {
+            path[i] = 0;
+        }
     }
 }
 static void free_path(uint32_t **path)
@@ -888,7 +890,7 @@ static void free_path(uint32_t **path)
    free(*path); 
    *path = NULL;
 }
-static boolean_t path_contains(uint32_t *path; uint8_t length, uint32_t sw)
+static boolean_t path_contains(uint32_t *path, uint8_t length, uint32_t sw)
 {
     uint8_t i = 0;
     for(i = 0; i < length; i++) {
@@ -914,11 +916,49 @@ static uint64_t get_path_weight(uint32_t *path, uint8_t path_length, uint32_t **
     for(i = 0; i < path_length -1; i++) {
         if(!path[i+1])
             break;
-        weight += weights[path[i]i-1][path[i+1]-1];
+        weight += weights[path[i]-1][path[i+1]-1];
     }
     return weight;
 }
+
+static link_t *get_link(vertex_t *adj_list, uint32_t src, uint32_t dst)
+{
+    uint32_t next = 0;
+    uint16_t destination_lid = adj_list[dst].lid;
+    link_t * link;
+    osm_switch_t *p_sw = adj_list[src].sw;
+    uint8_t out_port = p_sw->new_lft[destination_lid];
+
+    if(out_port != OSM_NO_PATH) {
+        link = adj_list[src].links;
+        while(link != NULL) {
+            if(link->from_port == out_port) {
+                break;
+            }
+            link = link->next;
+        }
+    }
+    return link;
+}
+
+static void update_weights(vertex_t *adj_list, uint32_t *path, uint32_t **weights, uint8_t path_length)
+{
+    uint8_t i = 0, j = 0;
+    uint32_t last = 0;
+    for(i = path_length - 1; i >= 0; i--) {
+        if((last = path[i]))
+            break;
+    }
+    for(j = 0; j < i; j++) {
+        if(get_link(adj_list, path[j], last))
+            break;
+        weights[path[j]-1][path[j+1]-1] += j+1;
+    }
+}
         
+/*
+ * *best_path should point to NULL
+ */
 static int find_path(lnmp_context_t *lnmp_context, uint32_t **weights, uint32_t **best_path, uint32_t src, uint32_t dst)
 {
     cl_list_t paths;
@@ -932,23 +972,25 @@ static int find_path(lnmp_context_t *lnmp_context, uint32_t **weights, uint32_t 
     uint64_t best_path_weight = 0xffffffff, current_path_weight = 0;
     uint32_t *current_path, *temp_path;
     uint32_t last = 0;
+    link_t * forced_next = NULL;
     uint8_t i = 0;
-    vertex_t *currrent;
+    vertex_t *current;
     link_t *link;
+    clean_path(*best_path, max_path_length); 
 
     allocate_new_path(&current_path, max_path_length);
     if(!current_path)
         goto ERROR;
-    currentpath[0] = src;
-    cl_list_insert_tail(&paths, currentpath);
+    current_path[0] = src;
+    cl_list_insert_tail(&paths, current_path);
     
-    while(current_path = (uint32_t *) cl_list_remove_head(&paths)) {
+    while((current_path = (uint32_t *) cl_list_remove_head(&paths))) {
         for(i = max_path_length - 1; i >= 0; i--) {
-            if(last = current_path[i])
+            if((last = current_path[i]))
                 break;
         }
 
-        current_path_weight = get_path_weight(current_path, weights);
+        current_path_weight = get_path_weight(current_path, max_path_length, weights);
         if(last == dst) {
             if(i+1 >= min_path_length && current_path_weight < best_path_weight) {
                 best_path_weight = current_path_weight;
@@ -963,11 +1005,12 @@ static int find_path(lnmp_context_t *lnmp_context, uint32_t **weights, uint32_t 
             }
         } else {
             if(i+1 < max_path_length) {
-                // TODO check if path already fixed
                 current = &lnmp_context->adj_list[last];
-                for(link = current->links; link != NULL; link = link->next) {
-                    if(!path_contains(current_path, max_path_length; link->to) && current_path_weight + weights[last - 1][link->to - 1] < best_path_weight) {
-                        temp_path = (uint32_t *) cl_list_remove_head(&path_poll);
+                forced_next = get_link(lnmp_context->adj_list, last, dst);
+
+                for(link = (forced_next) ? forced_next : current->links; link != NULL; link = link->next) {
+                    if(!path_contains(current_path, max_path_length, link->to) && current_path_weight + weights[last - 1][link->to - 1] < best_path_weight) {
+                        temp_path = (uint32_t *) cl_list_remove_head(&path_pool);
                         if(!temp_path)
                             allocate_new_path(&current_path, max_path_length);
                         if(!temp_path)
@@ -976,6 +1019,8 @@ static int find_path(lnmp_context_t *lnmp_context, uint32_t **weights, uint32_t 
                         temp_path[i+1] = link->to;
                         cl_list_insert_tail(&paths, temp_path);
                     }
+                    if(forced_next)
+                        break;
                 }
             }
             clean_path(current_path, max_path_length);
@@ -983,20 +1028,26 @@ static int find_path(lnmp_context_t *lnmp_context, uint32_t **weights, uint32_t 
         }
     }
     
-    //TODO cleanup
+    if(*best_path[0])
+        update_weights(lnmp_context->adj_list, *best_path, weights, max_path_length);
 
+    /* At this point current_path is equal to NULL and paths is empty, so only need to drain path_pool */
+    while((current_path = (uint32_t *) cl_list_remove_head(&path_pool))) {
+        free_path(&current_path);
+    }
 
     return 0;
 ERROR:
     return -1;
 }
 
-int lnmp_generate_layer(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_mgr, uint8_t layer_number, node_t **sdp_priority_queue, uint32_t **weights)
+static int lnmp_generate_layer(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_mgr, uint8_t layer_number, node_t **sdp_priority_queue, uint32_t **weights)
 {
     /* TODO Check if there is need to clear the layer beforehand */
 
     vertex_t *layer = lnmp_context->layers[layer_number];
     uint32_t adj_list_size = lnmp_context->adj_list_size;
+    vertex_t *adj_list = lnmp_context->adj_list;
     uint64_t pair;
     uint64_t *switch_pairs;
     uint32_t switch_pairs_size = (adj_list_size -1) * (adj_list_size -2), added_paths = 0;
@@ -1014,7 +1065,7 @@ int lnmp_generate_layer(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_mgr, ui
 
     while(current_switch_pair < switch_pairs_size && added_paths < lnmp_context->maximum_number_of_paths) {
         pair = switch_pairs[current_switch_pair++]; 
-
+        
 
     }
 
