@@ -21,6 +21,23 @@
 #define max(x,y) ((x) >= (y)) ? (x) : (y)
 #define min(x,y) ((x) <= (y)) ? (x) : (y)
 
+typedef struct layer_entry {
+    uint8_t port;
+    uint8_t hops; // number of hops to destination switch
+} layer_entry_t;
+
+static inline void set_default_layer_entry(layer_entry_t * entry)
+{
+    entry->port = OSM_NO_PATH;
+    entry->hops = 0;
+}
+
+typedef struct layer {
+    vertex_t *adj_list;
+    uint32_t adj_list_size;
+    layer_entry_t **entries;
+} layer_t;
+
 typedef struct lnmp_context {
     osm_routing_engine_type_t routing_type;
     osm_ucast_mgr_t *p_mgr;
@@ -32,7 +49,7 @@ typedef struct lnmp_context {
     uint64_t maximum_number_of_paths;
     uint8_t min_length;
     uint8_t max_length;
-    vertex_t **layers;
+    layer_t *layers;
 } lnmp_context_t;
 
 typedef struct node {
@@ -111,12 +128,12 @@ static int get_balance(node_t *root)
     return (root) ? get_height(root->l) - get_height(root->r) : 0;
 }
 
-static void insert(node_t **root, node_t *node) 
+static void insert_node(node_t **root, node_t *node) 
 {
     if(!*root)
         *root = node;
     else
-        insert(node->value <= (*root)->value ? &(*root)->l : &(*root)->r, node);
+        insert_node(node->value <= (*root)->value ? &(*root)->l : &(*root)->r, node);
 
     int balance = get_balance(*root);
 
@@ -278,18 +295,32 @@ static void free_adj_list(vertex_t **adj_list, uint32_t adj_list_size) {
         *adj_list = NULL;
     }
 }
+
+static void free_layer_entries(layer_entry_t **entries, uint32_t number_of_entries)
+{
+    if(entries) {
+        uint32_t i = 0;
+        for(i = 0; i < number_of_entries; i++) {
+            free(entries[i]);
+        }
+        free(entries);
+    }
+}
+
 static void lnmp_context_destroy(void *context)
 {
     lnmp_context_t *lnmp_context = (lnmp_context_t *) context;
     vertex_t *adj_list = (vertex_t *) (lnmp_context->adj_list);
     uint32_t j = 0;
     free_adj_list(&adj_list, lnmp_context->adj_list_size);
+    layer_t *layer = NULL;
     lnmp_context->adj_list = NULL;
     for(j = 0; j < lnmp_context->number_of_layers; j++) {
-        adj_list = (vertex_t *) (lnmp_context->layers[j]);     
-        free_adj_list(&adj_list, lnmp_context->adj_list_size);
+        layer = (layer_t *) (&lnmp_context->layers[j]);     
+        free_adj_list(&layer->adj_list, layer->adj_list_size);
+        free_layer_entries(layer->entries, layer->adj_list_size);
     }
-    free((vertex_t **) (lnmp_context->layers));
+    free((layer_t *) (lnmp_context->layers));
     lnmp_context->layers = NULL;
     lnmp_context->adj_list_size = 0;
 
@@ -511,7 +542,7 @@ static int lnmp_build_graph(void *context)
     // counts each individual lid
     uint64_t total_num_hca = 0;
     vertex_t *adj_list = NULL;
-    vertex_t **layers = NULL;
+    layer_t *layers = NULL;
     osm_physp_t *p_physp = NULL;
     link_t *link = NULL, *head = NULL;
     uint32_t num_sw = 0, adj_list_size = 0;
@@ -520,6 +551,8 @@ static int lnmp_build_graph(void *context)
     cl_heap_t heap;
     uint8_t layer_number = 0;
     vertex_t *layer = NULL;
+    layer_entry_t **entries = NULL;
+    layer_entry_t *entry = NULL;
 
     OSM_LOG_ENTER(p_mgr->p_log);
     OSM_LOG(p_mgr->p_log, OSM_LOG_VERBOSE,
@@ -552,7 +585,7 @@ static int lnmp_build_graph(void *context)
     lnmp_context->adj_list_size = adj_list_size;
 
     /* allocate the layers array */
-    layers = (vertex_t **) malloc(lnmp_context->number_of_layers * sizeof(vertex_t *));
+    layers = (layer_t *) malloc(lnmp_context->number_of_layers * sizeof(layer_t));
     if(!layers) {
         OSM_LOG(p_mgr->p_log, OSM_LOG_ERROR,
                 "ERR AD02: cannot allocate memory for layer pointers\n");
@@ -568,7 +601,23 @@ static int lnmp_build_graph(void *context)
         }
         for(i = 0; i < adj_list_size; i++)
             set_default_vertex(&layer[i]); 
-        layers[layer_number] = layer;
+        layers[layer_number].adj_list = layer;
+        layers[layer_number].adj_list_size = adj_list_size;
+        
+        entries = (layer_entry_t **) malloc((adj_list_size-1) * sizeof(layer_entry_t *));
+        if (!entries) {
+            OSM_LOG(p_mgr->p_log, OSM_LOG_ERROR,
+                    "ERR AD02: cannot allocate memory for one of the layers\n");
+            goto ERROR;
+        }
+        for(i = 0; i < adj_list_size - 1; i++) {
+            entries[i] = (layer_entry_t *) malloc((adj_list_size-1) * sizeof(layer_entry_t));
+            if(!entries[i])
+                goto ERROR;
+            for(j = 0; j < adj_list_size; j++)
+                set_default_layer_entry(&entries[i][j]);
+        }
+        layers[layer_number].entries = entries;
     }
     lnmp_context->layers = layers;
 
@@ -732,7 +781,7 @@ ERROR:
     return -1;
 }
 
-/*
+/*V
  * Used to remove all markings.
  * Mostly used when finishing the creation of a layer or to ensure a clean queue at the beginning.
  */
@@ -812,6 +861,26 @@ static uint8_t get_level(node_t **sdp_priority_queue, uint8_t number_of_levels, 
         }
     }
     return 0;
+}
+
+static void increase_priority(node_t **sdp_priority_queue, uint8_t number_of_levels, uint64_t key)
+{
+    uint8_t level = get_level(sdp_priority_queue, number_of_levels, key);
+   
+    if(level > 0) {
+        delete_node(&sdp_priority_queue[level], key);
+        insert_node(&sdp_priority_queue[level-1], new_node(key));
+    }
+}
+
+static void decrease_priority(node_t **sdp_priority_queue, uint8_t number_of_levels, uint64_t key)
+{
+    uint8_t level = get_level(sdp_priority_queue, number_of_levels, key);
+   
+    if(level < number_of_levels - 1) {
+        delete_node(&sdp_priority_queue[level], key);
+        insert_node(&sdp_priority_queue[level+1], new_node(key));
+    }
 }
 
 /*
@@ -921,13 +990,10 @@ static uint64_t get_path_weight(uint32_t *path, uint8_t path_length, uint32_t **
     return weight;
 }
 
-static link_t *get_link(vertex_t *adj_list, uint32_t src, uint32_t dst)
+static link_t *get_link(layer_t *layer, vertex_t *adj_list, uint32_t src, uint32_t dst)
 {
-    uint32_t next = 0;
-    uint16_t destination_lid = adj_list[dst].lid;
-    link_t * link;
-    osm_switch_t *p_sw = adj_list[src].sw;
-    uint8_t out_port = p_sw->new_lft[destination_lid];
+    link_t * link = NULL;;
+    uint8_t out_port = layer->entries[src-1][dst-1].port;
 
     if(out_port != OSM_NO_PATH) {
         link = adj_list[src].links;
@@ -941,7 +1007,7 @@ static link_t *get_link(vertex_t *adj_list, uint32_t src, uint32_t dst)
     return link;
 }
 
-static void update_weights(vertex_t *adj_list, uint32_t *path, uint32_t **weights, uint8_t path_length)
+static void update_weights(layer_t *layer, vertex_t *adj_list, uint32_t *path, uint32_t **weights, uint8_t path_length)
 {
     uint8_t i = 0, j = 0;
     uint32_t last = 0;
@@ -950,7 +1016,7 @@ static void update_weights(vertex_t *adj_list, uint32_t *path, uint32_t **weight
             break;
     }
     for(j = 0; j < i; j++) {
-        if(get_link(adj_list, path[j], last))
+        if(get_link(layer, adj_list, path[j], last))
             break;
         weights[path[j]-1][path[j+1]-1] += j+1;
     }
@@ -959,7 +1025,7 @@ static void update_weights(vertex_t *adj_list, uint32_t *path, uint32_t **weight
 /*
  * *best_path should point to NULL
  */
-static int find_path(lnmp_context_t *lnmp_context, uint32_t **weights, uint32_t **best_path, uint32_t src, uint32_t dst)
+static int find_path(layer_t *layer, lnmp_context_t *lnmp_context, uint32_t **weights, uint32_t **best_path, uint32_t src, uint32_t dst)
 {
     cl_list_t paths;
     // We always initialize paths of max length and try to reuse paths in order to reduce the number of callocs
@@ -1006,7 +1072,7 @@ static int find_path(lnmp_context_t *lnmp_context, uint32_t **weights, uint32_t 
         } else {
             if(i+1 < max_path_length) {
                 current = &lnmp_context->adj_list[last];
-                forced_next = get_link(lnmp_context->adj_list, last, dst);
+                forced_next = get_link(layer, lnmp_context->adj_list, last, dst);
 
                 for(link = (forced_next) ? forced_next : current->links; link != NULL; link = link->next) {
                     if(!path_contains(current_path, max_path_length, link->to) && current_path_weight + weights[last - 1][link->to - 1] < best_path_weight) {
@@ -1028,8 +1094,8 @@ static int find_path(lnmp_context_t *lnmp_context, uint32_t **weights, uint32_t 
         }
     }
     
-    if(*best_path[0])
-        update_weights(lnmp_context->adj_list, *best_path, weights, max_path_length);
+    if(*best_path && (*best_path)[0])
+        update_weights(layer, lnmp_context->adj_list, *best_path, weights, max_path_length);
 
     /* At this point current_path is equal to NULL and paths is empty, so only need to drain path_pool */
     while((current_path = (uint32_t *) cl_list_remove_head(&path_pool))) {
@@ -1045,14 +1111,19 @@ static int lnmp_generate_layer(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_
 {
     /* TODO Check if there is need to clear the layer beforehand */
 
-    vertex_t *layer = lnmp_context->layers[layer_number];
+    layer_t *layer = &(lnmp_context->layers[layer_number]);
+    uint8_t number_of_levels = lnmp_context->number_of_layers +1;
     uint32_t adj_list_size = lnmp_context->adj_list_size;
     vertex_t *adj_list = lnmp_context->adj_list;
     uint64_t pair;
     uint64_t *switch_pairs;
     uint32_t switch_pairs_size = (adj_list_size -1) * (adj_list_size -2), added_paths = 0;
     uint32_t current_switch_pair = 0;
-    uint32_t i = 0, j = 0;
+    uint8_t i = 0, j = 0;
+    uint32_t *path = NULL;
+    uint32_t last;
+    uint8_t max_path_length = lnmp_context->max_length +1;
+    uint8_t min_path_length = lnmp_context->min_length +1;
 
     switch_pairs = (uint64_t *) calloc(switch_pairs_size, sizeof(uint64_t));
     if (!switch_pairs) {
@@ -1065,10 +1136,31 @@ static int lnmp_generate_layer(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_
 
     while(current_switch_pair < switch_pairs_size && added_paths < lnmp_context->maximum_number_of_paths) {
         pair = switch_pairs[current_switch_pair++]; 
+        if(find_path(layer, lnmp_context, weights, &path, (uint32_t) (pair >> 32), (uint32_t) (pair & 0xffffffff)))
+            goto ERROR;
         
+        if(!path)
+            continue;
+        
+        added_paths++;
+        
+        for(i = max_path_length - 1; i >= 0; i--) {
+            if((last = path[i]))
+                break;
+        }
+        /* sanity check */
+        if(((uint64_t) path[0] << 32) + (uint64_t) path[last] != pair)
+            goto ERROR;
 
+        for(i = 0; i <= last+1 - min_path_length; i++) {
+            //if(get_link(
+        }
+        // TODO add to forwarding table all fixed pairs from the given path
+        // TODO add edges to graph needed to fill remaining forwarding entries
+        // TODO decrease priority of all pairs that have a new non-minimal path, including the original
     }
-
+    // TODO fill remaining forwarding entries
+    // TODO clean datastructures
 
     return 0;
 ERROR:
