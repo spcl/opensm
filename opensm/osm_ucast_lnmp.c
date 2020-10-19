@@ -992,7 +992,7 @@ static uint64_t get_path_weight(uint32_t *path, uint8_t path_length, uint32_t **
 
 static link_t *get_link(layer_t *layer, vertex_t *adj_list, uint32_t src, uint32_t dst)
 {
-    link_t * link = NULL;;
+    link_t * link = NULL;
     uint8_t out_port = layer->entries[src-1][dst-1].port;
 
     if(out_port != OSM_NO_PATH) {
@@ -1107,6 +1107,11 @@ ERROR:
     return -1;
 }
 
+static int fill_remaining_layer_entries(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_mgr, uint8_t layer_number, uint32_t **weights)
+{
+    
+}
+
 static int lnmp_generate_layer(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_mgr, uint8_t layer_number, node_t **sdp_priority_queue, uint32_t **weights)
 {
     /* TODO Check if there is need to clear the layer beforehand */
@@ -1124,6 +1129,7 @@ static int lnmp_generate_layer(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_
     uint32_t last;
     uint8_t max_path_length = lnmp_context->max_length +1;
     uint8_t min_path_length = lnmp_context->min_length +1;
+    link_t *link = NULL;
 
     switch_pairs = (uint64_t *) calloc(switch_pairs_size, sizeof(uint64_t));
     if (!switch_pairs) {
@@ -1153,11 +1159,25 @@ static int lnmp_generate_layer(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_
             goto ERROR;
 
         for(i = 0; i <= last+1 - min_path_length; i++) {
-            //if(get_link(
+        // decrease priority of all pairs that have a new non-minimal path, including the original
+            if(get_link(layer, adj_list, path[i], path[last]))
+                break;
+            decrease_priority(sdp_priority_queue, number_of_levels, ((uint64_t) path[0] << 32) + (uint64_t) path[last]);
         }
-        // TODO add to forwarding table all fixed pairs from the given path
-        // TODO add edges to graph needed to fill remaining forwarding entries
-        // TODO decrease priority of all pairs that have a new non-minimal path, including the original
+
+        for(i = 0; i < last; i++) {
+        // add to forwarding table all fixed pairs from the given path
+            link = adj_list[path[i]].links;
+            while(link != NULL) {
+                if(link->to == i+1)
+                    break;
+                link = link.next;
+            }
+            layer->entries[path[i]][path[last]].port = link.from_port;
+            layer->entries[path[i]][path[last]].hops = last - i;
+        }
+
+        // add edges to graph needed to fill remaining forwarding entries; FOR NOW USE FULL GRAPH TO ADD REMAINING EGDES AS WE USUALLY ADD ALL OF THEM ANYWAYS
     }
     // TODO fill remaining forwarding entries
     // TODO clean datastructures
