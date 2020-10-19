@@ -175,6 +175,142 @@ static void vltable_dealloc(vltable_t ** vltable)
 /**********************************************************************
  **********************************************************************/
 
+/************ helper functions to generate an ordered list of ports ***
+ ************ (functions copied from osm_ucast_mgr.c and modified) ****
+ **********************************************************************/
+static void add_sw_endports_to_order_list(osm_switch_t * sw,
+					  osm_ucast_mgr_t * m,
+					  cl_qmap_t * guid_tbl,
+					  boolean_t add_guids)
+{
+	osm_port_t *port;
+	ib_net64_t port_guid;
+	uint64_t sw_guid;
+	osm_physp_t *p;
+	int i;
+	boolean_t found;
+
+	for (i = 1; i < sw->num_ports; i++) {
+		p = osm_node_get_physp_ptr(sw->p_node, i);
+		if (p && p->p_remote_physp && !p->p_remote_physp->p_node->sw) {
+			port_guid = p->p_remote_physp->port_guid;
+			/* check if link is healthy, otherwise ignore CA */
+			if (!osm_link_is_healthy(p)) {
+				sw_guid =
+				    cl_ntoh64(osm_node_get_node_guid
+					      (sw->p_node));
+				OSM_LOG(m->p_log, OSM_LOG_INFO,
+					"WRN AD40: ignoring CA due to unhealthy"
+					" link from switch 0x%016" PRIx64
+					" port %" PRIu8 " to CA 0x%016" PRIx64
+					"\n", sw_guid, i, cl_ntoh64(port_guid));
+			}
+			port = osm_get_port_by_guid(m->p_subn, port_guid);
+			if (!port)
+				continue;
+			if (!cl_is_qmap_empty(guid_tbl)) {
+				found = (cl_qmap_get(guid_tbl, port_guid)
+					 != cl_qmap_end(guid_tbl));
+				if ((add_guids && !found)
+				    || (!add_guids && found))
+					continue;
+			}
+			if (!cl_is_item_in_qlist(&m->port_order_list,
+						 &port->list_item))
+				cl_qlist_insert_tail(&m->port_order_list,
+						     &port->list_item);
+			else
+				OSM_LOG(m->p_log, OSM_LOG_INFO,
+					"WRN AD37: guid 0x%016" PRIx64
+					" already in list\n", port_guid);
+		}
+	}
+}
+
+static void add_guid_to_order_list(uint64_t guid, osm_ucast_mgr_t * m)
+{
+	osm_port_t *port = osm_get_port_by_guid(m->p_subn, cl_hton64(guid));
+
+	if (!port) {
+		 OSM_LOG(m->p_log, OSM_LOG_DEBUG,
+			 "port guid not found: 0x%016" PRIx64 "\n", guid);
+	}
+
+	if (!cl_is_item_in_qlist(&m->port_order_list, &port->list_item))
+		cl_qlist_insert_tail(&m->port_order_list, &port->list_item);
+	else
+		OSM_LOG(m->p_log, OSM_LOG_INFO,
+			"WRN AD38: guid 0x%016" PRIx64 " already in list\n",
+			guid);
+}
+
+/* compare function of #Hca attached to a switch for stdlib qsort */
+static int cmp_num_hca(const void * l1, const void * l2)
+{
+	vertex_t *sw1 = *((vertex_t **) l1);
+	vertex_t *sw2 = *((vertex_t **) l2);
+	uint32_t num_hca1 = 0, num_hca2 = 0;
+
+	if (sw1)
+		num_hca1 = sw1->num_hca;
+	if (sw2)
+		num_hca2 = sw2->num_hca;
+
+	if (num_hca1 > num_hca2)
+		return -1;
+	else if (num_hca1 < num_hca2)
+		return 1;
+	else
+		return 0;
+}
+
+/* use stdlib to sort the switch array depending on num_hca */
+static inline void sw_list_sort_by_num_hca(vertex_t ** sw_list,
+					   uint32_t sw_list_size)
+{
+	qsort(sw_list, sw_list_size, sizeof(vertex_t *), cmp_num_hca);
+}
+
+/**********************************************************************
+ **********************************************************************/
+
+/************ helper functions to manage a map of CN and I/O guids ****
+ **********************************************************************/
+static int add_guid_to_map(void * cxt, uint64_t guid, char * p)
+{
+	cl_qmap_t *map = cxt;
+	name_map_item_t *item;
+	name_map_item_t *inserted_item;
+
+	item = malloc(sizeof(*item));
+	if (!item)
+		return -1;
+
+	item->guid = cl_hton64(guid);	/* internal: network byte order */
+	item->name = NULL;		/* name isn't needed */
+	inserted_item = (name_map_item_t *) cl_qmap_insert(map, item->guid, &item->item);
+	if (inserted_item != item)
+                free(item);
+
+	return 0;
+}
+
+static void destroy_guid_map(cl_qmap_t * guid_tbl)
+{
+	name_map_item_t *p_guid = NULL, *p_next_guid = NULL;
+
+	p_next_guid = (name_map_item_t *) cl_qmap_head(guid_tbl);
+	while (p_next_guid != (name_map_item_t *) cl_qmap_end(guid_tbl)) {
+		p_guid = p_next_guid;
+		p_next_guid = (name_map_item_t *) cl_qmap_next(&p_guid->item);
+		free(p_guid);
+	}
+	cl_qmap_remove_all(guid_tbl);
+}
+
+/**********************************************************************
+ **********************************************************************/
+
 static void dfsssp_print_graph(osm_ucast_mgr_t * p_mgr, vertex_t * adj_list,
 			       uint32_t size)
 {
