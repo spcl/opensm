@@ -113,10 +113,9 @@ typedef struct dfsssp_context {
 	uint8_t *vl_split_count;
 } dfsssp_context_t;
 
-
 /**************** set initial values for structs **********************
  **********************************************************************/
-static inline void set_default_link(link_t * link)
+inline void set_default_link(link_t * link)
 {
 	link->guid = 0;
 	link->from = 0;
@@ -127,7 +126,7 @@ static inline void set_default_link(link_t * link)
 	link->next = NULL;
 }
 
-static inline void set_default_vertex(vertex_t * vertex)
+inline void set_default_vertex(vertex_t * vertex)
 {
 	vertex->guid = 0;
 	vertex->lid = 0;
@@ -142,7 +141,7 @@ static inline void set_default_vertex(vertex_t * vertex)
 	vertex->dropped = FALSE;
 }
 
-static inline void set_default_cdg_node(cdg_node_t * node)
+inline void set_default_cdg_node(cdg_node_t * node)
 {
 	node->channelID = 0;
 	node->linklist = NULL;
@@ -160,17 +159,9 @@ static inline void set_default_cdg_node(cdg_node_t * node)
 /************ helper functions to save src/dest X vl combination ******
  **********************************************************************/
 
-static void vltable_dealloc(vltable_t ** vltable)
-{
-	if (*vltable) {
-		if ((*vltable)->lids)
-			free((*vltable)->lids);
-		if ((*vltable)->vls)
-			free((*vltable)->vls);
-		free(*vltable);
-		*vltable = NULL;
-	}
-}
+int32_t vltable_get_vl(vltable_t * vltable, ib_net16_t slid, ib_net16_t dlid);
+
+void vltable_dealloc(vltable_t ** vltable);
 
 /**********************************************************************
  **********************************************************************/
@@ -178,209 +169,39 @@ static void vltable_dealloc(vltable_t ** vltable)
 /************ helper functions to generate an ordered list of ports ***
  ************ (functions copied from osm_ucast_mgr.c and modified) ****
  **********************************************************************/
-static void add_sw_endports_to_order_list(osm_switch_t * sw,
+void add_sw_endports_to_order_list(osm_switch_t * sw,
 					  osm_ucast_mgr_t * m,
 					  cl_qmap_t * guid_tbl,
-					  boolean_t add_guids)
-{
-	osm_port_t *port;
-	ib_net64_t port_guid;
-	uint64_t sw_guid;
-	osm_physp_t *p;
-	int i;
-	boolean_t found;
+					  boolean_t add_guids);
 
-	for (i = 1; i < sw->num_ports; i++) {
-		p = osm_node_get_physp_ptr(sw->p_node, i);
-		if (p && p->p_remote_physp && !p->p_remote_physp->p_node->sw) {
-			port_guid = p->p_remote_physp->port_guid;
-			/* check if link is healthy, otherwise ignore CA */
-			if (!osm_link_is_healthy(p)) {
-				sw_guid =
-				    cl_ntoh64(osm_node_get_node_guid
-					      (sw->p_node));
-				OSM_LOG(m->p_log, OSM_LOG_INFO,
-					"WRN AD40: ignoring CA due to unhealthy"
-					" link from switch 0x%016" PRIx64
-					" port %" PRIu8 " to CA 0x%016" PRIx64
-					"\n", sw_guid, i, cl_ntoh64(port_guid));
-			}
-			port = osm_get_port_by_guid(m->p_subn, port_guid);
-			if (!port)
-				continue;
-			if (!cl_is_qmap_empty(guid_tbl)) {
-				found = (cl_qmap_get(guid_tbl, port_guid)
-					 != cl_qmap_end(guid_tbl));
-				if ((add_guids && !found)
-				    || (!add_guids && found))
-					continue;
-			}
-			if (!cl_is_item_in_qlist(&m->port_order_list,
-						 &port->list_item))
-				cl_qlist_insert_tail(&m->port_order_list,
-						     &port->list_item);
-			else
-				OSM_LOG(m->p_log, OSM_LOG_INFO,
-					"WRN AD37: guid 0x%016" PRIx64
-					" already in list\n", port_guid);
-		}
-	}
-}
-
-static void add_guid_to_order_list(uint64_t guid, osm_ucast_mgr_t * m)
-{
-	osm_port_t *port = osm_get_port_by_guid(m->p_subn, cl_hton64(guid));
-
-	if (!port) {
-		 OSM_LOG(m->p_log, OSM_LOG_DEBUG,
-			 "port guid not found: 0x%016" PRIx64 "\n", guid);
-	}
-
-	if (!cl_is_item_in_qlist(&m->port_order_list, &port->list_item))
-		cl_qlist_insert_tail(&m->port_order_list, &port->list_item);
-	else
-		OSM_LOG(m->p_log, OSM_LOG_INFO,
-			"WRN AD38: guid 0x%016" PRIx64 " already in list\n",
-			guid);
-}
+void add_guid_to_order_list(uint64_t guid, osm_ucast_mgr_t * m);
 
 /* compare function of #Hca attached to a switch for stdlib qsort */
-static int cmp_num_hca(const void * l1, const void * l2)
-{
-	vertex_t *sw1 = *((vertex_t **) l1);
-	vertex_t *sw2 = *((vertex_t **) l2);
-	uint32_t num_hca1 = 0, num_hca2 = 0;
-
-	if (sw1)
-		num_hca1 = sw1->num_hca;
-	if (sw2)
-		num_hca2 = sw2->num_hca;
-
-	if (num_hca1 > num_hca2)
-		return -1;
-	else if (num_hca1 < num_hca2)
-		return 1;
-	else
-		return 0;
-}
+int cmp_num_hca(const void * l1, const void * l2);
 
 /* use stdlib to sort the switch array depending on num_hca */
-static inline void sw_list_sort_by_num_hca(vertex_t ** sw_list,
+inline void sw_list_sort_by_num_hca(vertex_t ** sw_list,
 					   uint32_t sw_list_size)
 {
 	qsort(sw_list, sw_list_size, sizeof(vertex_t *), cmp_num_hca);
 }
-
 /**********************************************************************
  **********************************************************************/
 
 /************ helper functions to manage a map of CN and I/O guids ****
  **********************************************************************/
-static int add_guid_to_map(void * cxt, uint64_t guid, char * p)
-{
-	cl_qmap_t *map = cxt;
-	name_map_item_t *item;
-	name_map_item_t *inserted_item;
+int add_guid_to_map(void * cxt, uint64_t guid, char * p);
 
-	item = malloc(sizeof(*item));
-	if (!item)
-		return -1;
-
-	item->guid = cl_hton64(guid);	/* internal: network byte order */
-	item->name = NULL;		/* name isn't needed */
-	inserted_item = (name_map_item_t *) cl_qmap_insert(map, item->guid, &item->item);
-	if (inserted_item != item)
-                free(item);
-
-	return 0;
-}
-
-static void destroy_guid_map(cl_qmap_t * guid_tbl)
-{
-	name_map_item_t *p_guid = NULL, *p_next_guid = NULL;
-
-	p_next_guid = (name_map_item_t *) cl_qmap_head(guid_tbl);
-	while (p_next_guid != (name_map_item_t *) cl_qmap_end(guid_tbl)) {
-		p_guid = p_next_guid;
-		p_next_guid = (name_map_item_t *) cl_qmap_next(&p_guid->item);
-		free(p_guid);
-	}
-	cl_qmap_remove_all(guid_tbl);
-}
+void destroy_guid_map(cl_qmap_t * guid_tbl);
 
 /**********************************************************************
  **********************************************************************/
 
-static void dfsssp_print_graph(osm_ucast_mgr_t * p_mgr, vertex_t * adj_list,
-			       uint32_t size)
-{
-	uint32_t i = 0, c = 0;
-	link_t *link = NULL;
+void print_graph(osm_ucast_mgr_t * p_mgr, vertex_t * adj_list,
+			       uint32_t size);
+void print_routes(osm_ucast_mgr_t * p_mgr, vertex_t * adj_list,
+			 uint32_t adj_list_size, osm_port_t * port);
 
-	/* index 0 is for the source in dijkstra -> ignore */
-	for (i = 1; i < size; i++) {
-		OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG, "adj_list[%" PRIu32 "]:\n",
-			i);
-		OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
-			"   guid = 0x%" PRIx64 " lid = %" PRIu16 " (%s)\n",
-			adj_list[i].guid, adj_list[i].lid,
-			adj_list[i].sw->p_node->print_desc);
-		OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
-			"   num_hca = %" PRIu32 "\n", adj_list[i].num_hca);
-
-		c = 1;
-		for (link = adj_list[i].links; link != NULL;
-		     link = link->next, c++) {
-			OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
-				"   link[%" PRIu32 "]:\n", c);
-			OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
-				"      to guid = 0x%" PRIx64 " (%s) port %"
-				PRIu8 "\n", link->guid,
-				adj_list[link->to].sw->p_node->print_desc,
-				link->to_port);
-			OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
-				"      weight on this link = %" PRIu64 "\n",
-				link->weight);
-		}
-	}
-}
-
-static void print_routes(osm_ucast_mgr_t * p_mgr, vertex_t * adj_list,
-			 uint32_t adj_list_size, osm_port_t * port)
-{
-	uint32_t i = 0, j = 0;
-
-	for (i = 1; i < adj_list_size; i++) {
-		if (adj_list[i].state == DISCOVERED) {
-			OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
-				"Route from 0x%" PRIx64 " (%s) to 0x%" PRIx64
-				" (%s):\n", adj_list[i].guid,
-				adj_list[i].sw->p_node->print_desc,
-				cl_ntoh64(osm_node_get_node_guid(port->p_node)),
-				port->p_node->print_desc);
-			j = i;
-			while (adj_list[j].used_link) {
-				if (j > 0) {
-					OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
-						"   0x%" PRIx64
-						" (%s) routes thru port %" PRIu8
-						"\n", adj_list[j].guid,
-						adj_list[j].sw->p_node->
-						print_desc,
-						adj_list[j].used_link->to_port);
-				} else {
-					OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
-						"   0x%" PRIx64
-						" (%s) routes thru port %" PRIu8
-						"\n", adj_list[j].guid,
-						port->p_node->print_desc,
-						adj_list[j].used_link->to_port);
-				}
-				j = adj_list[j].used_link->from;
-			}
-		}
-	}
-}
+int dfsssp_remove_deadlocks(dfsssp_context_t * dfsssp_ctx);
 
 #endif
-

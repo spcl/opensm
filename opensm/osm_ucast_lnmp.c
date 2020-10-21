@@ -14,7 +14,7 @@
 #include <opensm/osm_multicast.h>
 #include <opensm/osm_mcast_mgr.h>
 
-#include <opensm/osm_ucast_dfsssp.h>
+#include "opensm/osm_ucast_dfsssp.h"
 
 #include <stdbool.h>
 
@@ -83,11 +83,11 @@ static node_t *new_node(uint64_t val)
 
 static void destroy_node(node_t *node) 
 {
-    if(node->l)
+    if(node) {
         destroy_node(node->l);
-    if(node->r)
         destroy_node(node->r);
-    free(node);
+        free(node);
+    }
 }
 
 static uint8_t get_height(node_t *root)
@@ -197,16 +197,6 @@ static void delete_node(node_t **root, int64_t val)
         right_rotate(&(*root)->r);
         left_rotate(root);
     }
-}
-
-static void find(node_t *root, node_t **node, int64_t val) 
-{
-    if(!root)
-        node = NULL;
-    else if(root->value == val)
-        *node = root;
-    else
-        find(val <= root->value ? root->l : root->r, node, val);
 }
 
 static boolean_t contains(node_t *root, int64_t val) 
@@ -760,12 +750,13 @@ static int lnmp_build_graph(void *context)
 
     /* print the discovered graph */
     if (OSM_LOG_IS_ACTIVE_V2(p_mgr->p_log, OSM_LOG_DEBUG))
-        dfsssp_print_graph(p_mgr, adj_list, adj_list_size);
+        print_graph(p_mgr, adj_list, adj_list_size);
 
     OSM_LOG_EXIT(p_mgr->p_log);
     return 0;
 
 ERROR:
+    // TODO free half inited layers with entries etc.
     if (cl_is_heap_inited(&heap))
         cl_heap_destroy(&heap);
     lnmp_context_destroy(context);
@@ -785,16 +776,6 @@ static uint8_t get_level(node_t **sdp_priority_queue, uint8_t number_of_levels, 
         }
     }
     return 0;
-}
-
-static void increase_priority(node_t **sdp_priority_queue, uint8_t number_of_levels, uint64_t key)
-{
-    uint8_t level = get_level(sdp_priority_queue, number_of_levels, key);
-   
-    if(level > 0) {
-        delete_node(&sdp_priority_queue[level], key);
-        insert_node(&sdp_priority_queue[level-1], new_node(key));
-    }
 }
 
 static void decrease_priority(node_t **sdp_priority_queue, uint8_t number_of_levels, uint64_t key)
@@ -976,7 +957,8 @@ static int find_path(layer_t *layer, lnmp_context_t *lnmp_context, uint32_t **we
     if(!current_path)
         goto ERROR;
     current_path[0] = src;
-    cl_list_insert_tail(&paths, current_path);
+    if(cl_list_insert_tail(&paths, current_path) != CL_SUCCESS)
+        goto ERROR;
     
     while((current_path = (uint32_t *) cl_list_remove_head(&paths))) {
         for(i = max_path_length - 1; i >= 0; i--) {
@@ -990,12 +972,14 @@ static int find_path(layer_t *layer, lnmp_context_t *lnmp_context, uint32_t **we
                 best_path_weight = current_path_weight;
                 if(*best_path) {
                     clean_path(*best_path, max_path_length);
-                    cl_list_insert_tail(&path_pool, *best_path);
+                    if(cl_list_insert_tail(&path_pool, *best_path) != CL_SUCCESS)
+                        free_path(best_path);
                 } 
                 *best_path = current_path;
             } else {
                 clean_path(current_path, max_path_length);
-                cl_list_insert_tail(&path_pool, current_path);
+                if(cl_list_insert_tail(&path_pool, current_path) != CL_SUCCESS)
+                    free_path(&current_path);
             }
         } else {
             if(i+1 < max_path_length) {
@@ -1006,19 +990,23 @@ static int find_path(layer_t *layer, lnmp_context_t *lnmp_context, uint32_t **we
                     if(!path_contains(current_path, max_path_length, link->to) && current_path_weight + weights[last - 1][link->to - 1] < best_path_weight) {
                         temp_path = (uint32_t *) cl_list_remove_head(&path_pool);
                         if(!temp_path)
-                            allocate_new_path(&current_path, max_path_length);
+                            allocate_new_path(&temp_path, max_path_length);
                         if(!temp_path)
                             goto ERROR;
                         copy_path(current_path, temp_path, i+1);
                         temp_path[i+1] = link->to;
-                        cl_list_insert_tail(&paths, temp_path);
+                        if(cl_list_insert_tail(&paths, temp_path) != CL_SUCCESS) {
+                            free_path(&temp_path);
+                            goto ERROR;
+                        }
                     }
                     if(forced_next)
                         break;
                 }
             }
             clean_path(current_path, max_path_length);
-            cl_list_insert_tail(&path_pool, current_path);
+            if(cl_list_insert_tail(&path_pool, current_path) != CL_SUCCESS)
+                free_path(&current_path);
         }
     }
     
@@ -1032,6 +1020,14 @@ static int find_path(layer_t *layer, lnmp_context_t *lnmp_context, uint32_t **we
 
     return 0;
 ERROR:
+    if(current_path)
+        free_path(&current_path);
+    while((current_path = (uint32_t *) cl_list_remove_head(&path_pool))) {
+        free_path(&current_path);
+    }
+    while((current_path = (uint32_t *) cl_list_remove_head(&paths))) {
+        free_path(&current_path);
+    }
     return -1;
 }
 
@@ -1489,7 +1485,7 @@ static int fill_remaining_lft_entries(lnmp_context_t *lnmp_context, osm_ucast_mg
 				goto ERROR;
 
 			if (OSM_LOG_IS_ACTIVE_V2(p_mgr->p_log, OSM_LOG_DEBUG))
-				dfsssp_print_graph(p_mgr, adj_list,
+				print_graph(p_mgr, adj_list,
 						   adj_list_size);
 		}
 	}
@@ -1534,8 +1530,6 @@ ERROR:
 
 static int lnmp_generate_layer(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_mgr, uint8_t layer_number, node_t **sdp_priority_queue, uint32_t **weights)
 {
-    /* TODO Check if there is need to clear the layer beforehand */
-
     layer_t *layer = &(lnmp_context->layers[layer_number]);
     uint8_t number_of_levels = lnmp_context->number_of_layers +1;
     uint32_t adj_list_size = lnmp_context->adj_list_size;
@@ -1598,10 +1592,10 @@ static int lnmp_generate_layer(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_
         }
 
         // add edges to graph needed to fill remaining forwarding entries; FOR NOW USE FULL GRAPH TO ADD REMAINING EGDES AS WE USUALLY ADD ALL OF THEM ANYWAYS
+        if(path)
+            free_path(&path);
     }
 
-    if(path)
-        free_path(&path);
     free(switch_pairs);
 
     // insert all entries into the new_lft table
@@ -1622,7 +1616,7 @@ static int lnmp_perform_routing(void *context)
     osm_ucast_mgr_t *p_mgr = (osm_ucast_mgr_t *) lnmp_context->p_mgr;
     layer_t *layer = NULL;
     uint32_t adj_list_size = lnmp_context->adj_list_size;
-    uint32_t **weights;
+    uint32_t **weights = NULL;
     uint32_t i = 0, j = 0;
     uint8_t layer_number = 0, lmc = 0;
     uint16_t min_lid_ho = 0;
@@ -1701,25 +1695,89 @@ static int lnmp_perform_routing(void *context)
     }
     free(weights);
 
+    /* priority queue no longer needed */
+    for(i = 0; i < lnmp_context->number_of_layers + 1; i++) {
+        destroy_node(sdp_priority_queue[i]); 
+    }
+    free(sdp_priority_queue);
+
     // fill remaining entries using dijkstra
     fill_remaining_lft_entries(lnmp_context, p_mgr);
 
-    // TODO remove deadlocks here
+    // create temporary dfsssp_context to remove deadlocks
+    dfsssp_context_t dfsssp_ctx = { .routing_type = OSM_ROUTING_ENGINE_TYPE_DFSSSP, .p_mgr = p_mgr,
+        .adj_list = lnmp_context->adj_list, .adj_list_size = lnmp_context->adj_list_size, .srcdest2vl_table = NULL, .vl_split_count = NULL };
+    
+    if(dfsssp_remove_deadlocks(&dfsssp_ctx))
+        goto ERROR;
+    
+    lnmp_context->srcdest2vl_table = dfsssp_ctx.srcdest2vl_table;
+    lnmp_context->vl_split_count = dfsssp_ctx.vl_split_count;
 
-    // TODO clean up
 	/* list not needed after the dijkstra steps and deadlock removal */
 	cl_qlist_remove_all(&p_mgr->port_order_list);
-
+    return 0; 
 
 ERROR:
-    //TODO clean up
 	if (!cl_is_qlist_empty(&p_mgr->port_order_list))
 		cl_qlist_remove_all(&p_mgr->port_order_list);
+    if (sdp_priority_queue) {
+        for(i = 0; i < lnmp_context->number_of_layers + 1; i++) {
+            destroy_node(sdp_priority_queue[i]); 
+        }
+        free(sdp_priority_queue);
+    }
+    if (weights) {
+        for(i = 0; i < adj_list_size -1; i++) {
+            if(weights[i])
+                free(weights[i]);
+        }
+        free(weights);
+    }
     return -1;
 }
 
 static uint8_t get_lnmp_sl(void *context, uint8_t hint_for_default_sl, const ib_net16_t slid, const ib_net16_t dlid)
 {
+	lnmp_context_t *lnmp_context = (lnmp_context_t *) context;
+	osm_port_t *src_port, *dest_port;
+	vltable_t *srcdest2vl_table = NULL;
+	uint8_t *vl_split_count = NULL;
+	osm_ucast_mgr_t *p_mgr = NULL;
+	int32_t res = 0;
+
+    if (lnmp_context) {
+		p_mgr = (osm_ucast_mgr_t *) lnmp_context->p_mgr;
+		srcdest2vl_table = (vltable_t *) (lnmp_context->srcdest2vl_table);
+		vl_split_count = (uint8_t *) (lnmp_context->vl_split_count);
+	}
+	else
+		return hint_for_default_sl;
+
+	src_port = osm_get_port_by_lid(p_mgr->p_subn, slid);
+	if (!src_port)
+		return hint_for_default_sl;
+
+	dest_port = osm_get_port_by_lid(p_mgr->p_subn, dlid);
+	if (!dest_port)
+		return hint_for_default_sl;
+
+	if (!srcdest2vl_table)
+		return hint_for_default_sl;
+
+	res = vltable_get_vl(srcdest2vl_table, slid, dlid);
+
+	/* we will randomly distribute the traffic over multiple VLs if
+	   necessary for good balancing; therefore vl_split_count provides
+	   the number of VLs to use for certain traffic
+	 */
+	if (res > -1) {
+		if (vl_split_count[res] > 1)
+			return (uint8_t) (res + rand()%(vl_split_count[res]));
+		else
+			return (uint8_t) res;
+	} else
+		return hint_for_default_sl;
     return hint_for_default_sl;
 }
 
@@ -1734,11 +1792,11 @@ int osm_ucast_lnmp_setup(struct osm_routing_engine *r, osm_opensm_t *p_osm)
     /* reset funciton pointer to lnmp routines */
     r->context = (void *)lnmp_context;
     r->build_lid_matrices = lnmp_build_graph;
+    r->ucast_build_fwd_tables = lnmp_perform_routing;
     //TODO
-    //r->ucast_build_fwd_tables = dfsssp_do_dijkstra_routing;
     //r->mcast_build_stree = dfsssp_do_mcast_routing;
 
-    //r->path_sl = get_lnmp_sl; could potentially assign this when determining the paths per layer
+    r->path_sl = get_lnmp_sl; 
     r->destroy = delete;
 
     /* we initialize with the current time to achieve a 'good' randomized
