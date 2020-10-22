@@ -2351,7 +2351,7 @@ ERROR:
    for the spanning tree, performing a dijkstra step with this sw as root,
    and calculating the mcast table for MLID
 */
-static ib_api_status_t dfsssp_do_mcast_routing(void * context,
+ib_api_status_t dfsssp_do_mcast_routing(void * context,
 					       osm_mgrp_box_t * mbox)
 {
 	dfsssp_context_t *dfsssp_ctx = (dfsssp_context_t *) context;

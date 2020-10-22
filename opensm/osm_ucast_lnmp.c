@@ -305,16 +305,17 @@ static void lnmp_context_destroy(void *context)
     free_adj_list(&adj_list, lnmp_context->adj_list_size);
     layer_t *layer = NULL;
     lnmp_context->adj_list = NULL;
-    for(j = 0; j < lnmp_context->number_of_layers; j++) {
-        layer = (layer_t *) (&lnmp_context->layers[j]);     
-        /* free_adj_list(&layer->adj_list, layer->adj_list_size); */
-        free_layer_entries(layer->entries, lnmp_context->adj_list_size -1);
+    if (lnmp_context->layers) {
+        for(j = 0; j < lnmp_context->number_of_layers; j++) {
+            layer = (layer_t *) (&lnmp_context->layers[j]);     
+            /* free_adj_list(&layer->adj_list, layer->adj_list_size); */
+            free_layer_entries(layer->entries, lnmp_context->adj_list_size -1);
+        }
+        free((layer_t *) (lnmp_context->layers));
     }
-    free((layer_t *) (lnmp_context->layers));
     lnmp_context->layers = NULL;
     lnmp_context->adj_list_size = 0;
 
-    // TODO check this
     /* free srcdest2vl table and the split count information table
        (can be done, because dfsssp_context_destroy is called after
        osm_get_dfsssp_sl)
@@ -729,7 +730,6 @@ static int lnmp_build_graph(void *context)
     if (err) {
         goto ERROR;
     } else {
-        // TODO check why this is the case
         /* if sm is running on a switch, then dijkstra doesn't
            initialize the used_link for this switch
            */
@@ -756,9 +756,28 @@ static int lnmp_build_graph(void *context)
     return 0;
 
 ERROR:
-    // TODO free half inited layers with entries etc.
     if (cl_is_heap_inited(&heap))
         cl_heap_destroy(&heap);
+    if(!lnmp_context->layers) {
+        if(layers) {
+            for(layer_number = 0; layer_number < lnmp_context->number_of_layers; layer_number++) {
+                for(i = 0; i < adj_list_size -1; i++) {
+                    if(layers[layer_number].entries[i])
+                        free(layers[layer_number].entries[i]);
+                }
+                if(layers[layer_number].entries)
+                    free(layers[layer_number].entries);
+            }
+            if(entries) {
+                for(i = 0; i < adj_list_size -1; i++) {
+                    if(entries[i])
+                        free(entries[i]);
+                }
+                free(entries);
+            }
+            free(layers);
+        }
+    }
     lnmp_context_destroy(context);
     return -1;
 }
@@ -1781,6 +1800,17 @@ static uint8_t get_lnmp_sl(void *context, uint8_t hint_for_default_sl, const ib_
     return hint_for_default_sl;
 }
 
+static ib_api_status_t lnmp_do_mcast_routing(void *context, osm_mgrp_box_t *mbox)
+{
+    lnmp_context_t *lnmp_context = (lnmp_context_t *) context;
+
+    // create temporary dfsssp_context to call dfsssp's mcast routing
+    dfsssp_context_t dfsssp_ctx = { .routing_type = OSM_ROUTING_ENGINE_TYPE_DFSSSP, .p_mgr = lnmp_context->p_mgr,
+        .adj_list = lnmp_context->adj_list, .adj_list_size = lnmp_context->adj_list_size, 
+        .srcdest2vl_table = lnmp_context->srcdest2vl_table, .vl_split_count = lnmp_context->vl_split_count };
+
+    return dfsssp_do_mcast_routing(&dfsssp_ctx, mbox);
+}
 
 int osm_ucast_lnmp_setup(struct osm_routing_engine *r, osm_opensm_t *p_osm)
 {
@@ -1793,8 +1823,7 @@ int osm_ucast_lnmp_setup(struct osm_routing_engine *r, osm_opensm_t *p_osm)
     r->context = (void *)lnmp_context;
     r->build_lid_matrices = lnmp_build_graph;
     r->ucast_build_fwd_tables = lnmp_perform_routing;
-    //TODO
-    //r->mcast_build_stree = dfsssp_do_mcast_routing;
+    r->mcast_build_stree = lnmp_do_mcast_routing;
 
     r->path_sl = get_lnmp_sl; 
     r->destroy = delete;

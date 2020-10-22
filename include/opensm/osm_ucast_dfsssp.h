@@ -204,4 +204,6 @@ void print_routes(osm_ucast_mgr_t * p_mgr, vertex_t * adj_list,
 
 int dfsssp_remove_deadlocks(dfsssp_context_t * dfsssp_ctx);
 
+ib_api_status_t dfsssp_do_mcast_routing(void * context,
+					       osm_mgrp_box_t * mbox);
 #endif
