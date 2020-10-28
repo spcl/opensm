@@ -115,7 +115,7 @@ typedef struct dfsssp_context {
 
 /**************** set initial values for structs **********************
  **********************************************************************/
-inline void set_default_link(link_t * link)
+static inline void set_default_link(link_t * link)
 {
 	link->guid = 0;
 	link->from = 0;
@@ -126,7 +126,7 @@ inline void set_default_link(link_t * link)
 	link->next = NULL;
 }
 
-inline void set_default_vertex(vertex_t * vertex)
+static inline void set_default_vertex(vertex_t * vertex)
 {
 	vertex->guid = 0;
 	vertex->lid = 0;
@@ -141,7 +141,7 @@ inline void set_default_vertex(vertex_t * vertex)
 	vertex->dropped = FALSE;
 }
 
-inline void set_default_cdg_node(cdg_node_t * node)
+static inline void set_default_cdg_node(cdg_node_t * node)
 {
 	node->channelID = 0;
 	node->linklist = NULL;
@@ -180,7 +180,7 @@ void add_guid_to_order_list(uint64_t guid, osm_ucast_mgr_t * m);
 int cmp_num_hca(const void * l1, const void * l2);
 
 /* use stdlib to sort the switch array depending on num_hca */
-inline void sw_list_sort_by_num_hca(vertex_t ** sw_list,
+static inline void sw_list_sort_by_num_hca(vertex_t ** sw_list,
 					   uint32_t sw_list_size)
 {
 	qsort(sw_list, sw_list_size, sizeof(vertex_t *), cmp_num_hca);
