@@ -348,7 +348,7 @@ static void apply_index_update(const void * context, const size_t new_index)
 
 static int dijkstra(osm_ucast_mgr_t * p_mgr, cl_heap_t * p_heap,
         vertex_t * adj_list, uint32_t adj_list_size,
-        osm_port_t * port, uint16_t lid)
+        osm_port_t * port, uint16_t lid, boolean_t check_lft)
 {
     uint32_t i = 0, j = 0, index = 0;
     osm_node_t *remote_node = NULL;
@@ -496,8 +496,8 @@ static int dijkstra(osm_ucast_mgr_t * p_mgr, cl_heap_t * p_heap,
             if ((adj_list[link->to].state != DISCOVERED)
                     && (current->distance + link->weight <
                         adj_list[link->to].distance)
-                    && (adj_list[link->to].sw->new_lft[lid] == OSM_NO_PATH)) {
-                fixed_port = adj_list[link->to].sw->new_lft[lid];
+                    && (!check_lft || (adj_list[link->to].sw->new_lft[lid] == OSM_NO_PATH))) {
+                fixed_port = (check_lft) ? adj_list[link->to].sw->new_lft[lid] : OSM_NO_PATH;
                 if(fixed_port == OSM_NO_PATH || fixed_port == link->to_port) {
                     adj_list[link->to].used_link = link;
                     adj_list[link->to].distance =
@@ -725,7 +725,7 @@ static int lnmp_build_graph(void *context)
     sm_lid = p_mgr->p_subn->master_sm_base_lid;
     p_port = osm_get_port_by_lid(p_mgr->p_subn, sm_lid);
     //
-    err = dijkstra(p_mgr, &heap, adj_list, adj_list_size, p_port, sm_lid);
+    err = dijkstra(p_mgr, &heap, adj_list, adj_list_size, p_port, sm_lid, false);
 
     if (err) {
         goto ERROR;
@@ -1492,7 +1492,7 @@ static int fill_remaining_lft_entries(lnmp_context_t *lnmp_context, osm_ucast_mg
 			/* do dijkstra from this Hca/LID/SP0 to each switch */
 			err =
 			    dijkstra(p_mgr, &heap, adj_list, adj_list_size,
-				     port, lid);
+				     port, lid, true);
 			if (err)
 				goto ERROR;
 			if (OSM_LOG_IS_ACTIVE_V2(p_mgr->p_log, OSM_LOG_DEBUG))
