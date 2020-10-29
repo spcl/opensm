@@ -742,6 +742,7 @@ static int lnmp_build_graph(void *context)
                         "Switch: 0x%" PRIx64 ", was not discovered by dijkstra\n", 
                         cl_ntoh64(osm_node_get_node_guid(adj_list[i].sw->p_node)));
             }
+        }
         if (max_num_undiscov < undiscov) {
             OSM_LOG(p_mgr->p_log, OSM_LOG_ERROR,
                     "ERR AD0C: unsupported network state (detached"
