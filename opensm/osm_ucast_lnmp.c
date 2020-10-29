@@ -738,7 +738,9 @@ static int lnmp_build_graph(void *context)
         for (i = 1; i < adj_list_size; i++) {
             if(!adj_list[i].used_link) {
                 undiscov++;
-                OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG, "Switch: " PRIx64 "was not discovered by dijkstra\n", adj_list[i].guid);
+                OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG, 
+                        "Switch: 0x%" PRIx64 ", was not discovered by dijkstra\n", 
+                        cl_ntoh64(osm_node_get_node_guid(adj_list[i].sw->p_node)));
             }
         if (max_num_undiscov < undiscov) {
             OSM_LOG(p_mgr->p_log, OSM_LOG_ERROR,
