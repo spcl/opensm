@@ -937,9 +937,8 @@ static void update_layer_weights(layer_t *layer, vertex_t *adj_list, uint32_t *p
             break;
     }
     for(j = 0; j < i; j++) {
-        if(get_link(layer, adj_list, path[j], last))
-            break;
-        additional_weight += adj_list[path[j]].num_hca;
+        if(!get_link(layer, adj_list, path[j], last))
+            additional_weight += adj_list[path[j]].num_hca;
         weights[path[j]-1][path[j+1]-1] += additional_weight;
     }
 }
