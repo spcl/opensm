@@ -735,8 +735,11 @@ static int lnmp_build_graph(void *context)
            */
         if (osm_node_get_type(p_port->p_node) != IB_NODE_TYPE_CA)
             max_num_undiscov = 1;
-        for (i = 1; i < adj_list_size; i++)
-            undiscov += (adj_list[i].used_link) ? 0 : 1;
+        for (i = 1; i < adj_list_size; i++) {
+            if(!adj_list[i].used_link) {
+                undiscov++;
+                OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG, "Switch: " PRIx64 "was not discovered by dijkstra\n", adj_list[i].guid);
+            }
         if (max_num_undiscov < undiscov) {
             OSM_LOG(p_mgr->p_log, OSM_LOG_ERROR,
                     "ERR AD0C: unsupported network state (detached"
