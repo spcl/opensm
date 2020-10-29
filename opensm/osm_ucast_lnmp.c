@@ -240,19 +240,7 @@ static lnmp_context_t *lnmp_context_create(osm_opensm_t *p_osm, osm_routing_engi
         lnmp_context->srcdest2vl_table = NULL;
         lnmp_context->vl_split_count = NULL;
 
-        cl_map_item_t *item = NULL;
-        osm_port_t *p_port = NULL;
-        uint8_t lmc = 1;
-        cl_qmap_t *port_tbl = &lnmp_context->p_mgr->p_subn->port_guid_tbl;	/* 1 management port per switch + 1 or 2 ports for each Hca */
-        for (item = cl_qmap_head(port_tbl); item != cl_qmap_end(port_tbl);
-                item = cl_qmap_next(item)) {
-            p_port = (osm_port_t *) item;
-            if (osm_node_get_type(p_port->p_node) == IB_NODE_TYPE_CA) {
-                lmc = max(osm_port_get_lmc(p_port), 1 << lmc);
-            }
-        }
-
-        lnmp_context->number_of_layers = lmc;
+        lnmp_context->number_of_layers = 1;
         lnmp_context->maximum_number_of_paths = 10000;
         lnmp_context->min_length = 3;
         lnmp_context->max_length = 5;
@@ -532,7 +520,7 @@ static int lnmp_build_graph(void *context)
     cl_map_item_t *item = NULL;
     osm_switch_t *sw = NULL;
     osm_node_t *remote_node = NULL;
-    uint8_t port = 0, remote_port = 0;
+    uint8_t port = 0, remote_port = 0, max_lmc = 1;
     uint32_t i = 0, j = 0, err = 0, undiscov = 0, max_num_undiscov = 0;
     // counts each individual lid
     uint64_t total_num_hca = 0;
@@ -577,6 +565,20 @@ static int lnmp_build_graph(void *context)
     lnmp_context->adj_list = adj_list;
     lnmp_context->adj_list_size = adj_list_size;
 
+    /* count the total number of Hca / LIDs (for lmc>0) in the fabric;
+       even include base/enhanced switch port 0; base SP0 will have lmc=0
+       */
+    for (item = cl_qmap_head(port_tbl); item != cl_qmap_end(port_tbl);
+            item = cl_qmap_next(item)) {
+        p_port = (osm_port_t *) item;
+        if (osm_node_get_type(p_port->p_node) == IB_NODE_TYPE_CA ||
+                osm_node_get_type(p_port->p_node) == IB_NODE_TYPE_SWITCH) {
+            lmc = osm_port_get_lmc(p_port);
+            max_lmc = max(max_lmc, 1 << lmc);
+            total_num_hca += (1 << lmc);
+        }
+    }
+    lnmp_context->number_of_layers = max_lmc;
     /* allocate the layers array */
     layers = (layer_t *) malloc(lnmp_context->number_of_layers * sizeof(layer_t));
     if(!layers) {
@@ -602,20 +604,6 @@ static int lnmp_build_graph(void *context)
         layers[layer_number].entries = entries;
     }
     lnmp_context->layers = layers;
-
-
-    /* count the total number of Hca / LIDs (for lmc>0) in the fabric;
-       even include base/enhanced switch port 0; base SP0 will have lmc=0
-       */
-    for (item = cl_qmap_head(port_tbl); item != cl_qmap_end(port_tbl);
-            item = cl_qmap_next(item)) {
-        p_port = (osm_port_t *) item;
-        if (osm_node_get_type(p_port->p_node) == IB_NODE_TYPE_CA ||
-                osm_node_get_type(p_port->p_node) == IB_NODE_TYPE_SWITCH) {
-            lmc = osm_port_get_lmc(p_port);
-            total_num_hca += (1 << lmc);
-        }
-    }
 
     i = 1;			/* fill adj_list -> start with index 1 because the 0. element is reserved */
     for (item = cl_qmap_head(sw_tbl); item != cl_qmap_end(sw_tbl);
