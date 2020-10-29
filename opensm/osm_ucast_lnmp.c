@@ -1581,7 +1581,7 @@ static int lnmp_generate_layer(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_
                 break;
         }
         /* sanity check */
-        if(((uint64_t) path[0] << 32) + (uint64_t) path[last] != pair)
+        if(((uint64_t) path[0] << 32) + (uint64_t) last != pair)
             goto ERROR;
 
         for(i = 0; i <= last+1 - min_path_length; i++) {
