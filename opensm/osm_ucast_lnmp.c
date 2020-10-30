@@ -1596,7 +1596,7 @@ static int lnmp_generate_layer(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_
         // add to forwarding table all fixed pairs from the given path
             link = adj_list[path[i]].links;
             while(link != NULL) {
-                if(link->to == i+1)
+                if(link->to == path[i+1])
                     break;
                 link = link->next;
             }
