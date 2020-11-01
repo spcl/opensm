@@ -241,10 +241,9 @@ void print_weights(osm_ucast_mgr_t *p_mgr, vertex_t *adj_list, uint32_t **weight
                 "Weights to reach these switches:\n");
         for(j = 1; j < adj_list_size; j++) {
             OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
-                    " lid: %" PRIu16 " weight: %" PRIu32 ";",
+                    "    lid: %" PRIu16 " weight: %" PRIu32 "\n",
                     adj_list[j].lid, weights[i-1][j-1]);
         }
-        OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG, "\n");
     }
 }
 
@@ -292,10 +291,10 @@ static void print_layer(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_mgr, ui
                 layer_entry = layer->entries[i][j];
                 if(!link) {
                     OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
-                            " dst_lid: %" PRIu16 " NO PATH IN THIS LAYER\n", adj_list[j+1].lid);
+                            "    dst_lid: %" PRIu16 " NO PATH IN THIS LAYER\n", adj_list[j+1].lid);
                 } else {
                     OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
-                            " dst_lid: %" PRIu16 " next_hop: %" PRIu16 " out_port: %" PRIu8 " hops %" PRIu8 "\n",
+                            "    dst_lid: %" PRIu16 " next_hop: %" PRIu16 " out_port: %" PRIu8 " hops %" PRIu8 "\n",
                             adj_list[j+1].lid, adj_list[link->to].lid, layer_entry.port, layer_entry.hops);
                 }
             }
