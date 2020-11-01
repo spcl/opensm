@@ -222,9 +222,86 @@ static void add_from_offset(node_t *root, uint32_t *index, uint64_t *array, bool
     }
 }
 
-/*
- * -------------------------------------------------
- */
+/**********************************************************************
+ **********************************************************************/
+
+void print_weights(osm_ucast_mgr_t *p_mgr, vertex_t *adj_list, uint32_t **weights, uint32_t adj_list_size)
+{
+    uint32_t i = 0, j = 0;
+    for(i = 1; i < adj_list_size; i++) {
+		OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG, "adj_list[%" PRIu32 "]:\n",
+			i);
+		OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
+			"   guid = 0x%" PRIx64 " lid = %" PRIu16 " (%s)\n",
+			adj_list[i].guid, adj_list[i].lid,
+			adj_list[i].sw->p_node->print_desc);
+		OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
+			"   num_hca = %" PRIu32 "\n", adj_list[i].num_hca);
+        OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
+                "Weights to reach these switches:\n");
+        for(j = 1; j < adj_list_size; j++) {
+            OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
+                    " lid: %" PRIu16 " weight: %" PRIu32 ";",
+                    adj_list[j].lid, weights[i-1][j-1]);
+        }
+        OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG, "\n");
+    }
+}
+
+static link_t *get_link(layer_t *layer, vertex_t *adj_list, uint32_t src, uint32_t dst)
+{
+    link_t * link = NULL;
+    uint8_t out_port = layer->entries[src-1][dst-1].port;
+
+    if(out_port != OSM_NO_PATH) {
+        link = adj_list[src].links;
+        while(link != NULL) {
+            if(link->from_port == out_port) {
+                break;
+            }
+            link = link->next;
+        }
+    }
+    return link;
+}
+
+static void print_layer(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_mgr, uint8_t layer_number)
+{
+    uint32_t i = 0, j = 0;
+    layer_t *layer = NULL;
+    link_t *link = NULL;
+    vertex_t *adj_list = lnmp_context->adj_list;
+    uint32_t number_of_layer_entries = lnmp_context->adj_list_size -1;
+    layer_entry_t layer_entry;
+    layer = &(lnmp_context->layers[layer_number]);
+    if(layer) {
+        OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG, "Printing layer: %" PRIu8 "\n\n", layer_number);
+        for(i = 0; i < number_of_layer_entries; i++) {
+            OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG, "adj_list[%" PRIu32 "]:\n",
+                i+1);
+            OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
+                "   guid = 0x%" PRIx64 " lid = %" PRIu16 " (%s)\n",
+                adj_list[i+1].guid, adj_list[i+1].lid,
+                adj_list[i+1].sw->p_node->print_desc);
+            OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
+                "   num_hca = %" PRIu32 "\n", adj_list[i+1].num_hca);
+            OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
+                "Path to reach all other switches:\n");
+            for(j = 0; j < number_of_layer_entries; j++) {
+                link = get_link(layer, adj_list, i+1, j+1);
+                layer_entry = layer->entries[i][j];
+                if(!link) {
+                    OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
+                            " dst_lid: %" PRIu16 " NO PATH IN THIS LAYER\n", adj_list[j+1].lid);
+                } else {
+                    OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
+                            " dst_lid: %" PRIu16 " next_hop: %" PRIu16 " out_port: %" PRIu8 " hops %" PRIu8 "\n",
+                            adj_list[j+1].lid, adj_list[link->to].lid, layer_entry.port, layer_entry.hops);
+                }
+            }
+        }
+    }
+}
 
 static lnmp_context_t *lnmp_context_create(osm_opensm_t *p_osm, osm_routing_engine_type_t routing_type)
 {
@@ -909,23 +986,6 @@ static uint64_t get_path_weight(uint32_t *path, uint8_t path_length, uint32_t **
         weight += weights[path[i]-1][path[i+1]-1];
     }
     return weight;
-}
-
-static link_t *get_link(layer_t *layer, vertex_t *adj_list, uint32_t src, uint32_t dst)
-{
-    link_t * link = NULL;
-    uint8_t out_port = layer->entries[src-1][dst-1].port;
-
-    if(out_port != OSM_NO_PATH) {
-        link = adj_list[src].links;
-        while(link != NULL) {
-            if(link->from_port == out_port) {
-                break;
-            }
-            link = link->next;
-        }
-    }
-    return link;
 }
 
 static void update_layer_weights(layer_t *layer, vertex_t *adj_list, uint32_t *path, uint32_t **weights, uint8_t path_length)
@@ -1692,8 +1752,10 @@ static int lnmp_perform_routing(void *context)
 
     /* generate layers */
 
-    for(layer_number = 0; layer_number < lnmp_context->number_of_layers; layer_number++) {
+    for(layer_number = 1; layer_number < lnmp_context->number_of_layers; layer_number++) {
         lnmp_generate_layer(lnmp_context, p_mgr, layer_number, sdp_priority_queue, weights);
+        print_weights(p_mgr, adj_list, weights, adj_list_size);
+        print_layer(lnmp_context, p_mgr, layer_number);
     }
 
     increase_link_weights(lnmp_context, weights);
