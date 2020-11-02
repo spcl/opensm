@@ -318,8 +318,8 @@ static lnmp_context_t *lnmp_context_create(osm_opensm_t *p_osm, osm_routing_engi
 
         lnmp_context->number_of_layers = 1;
         lnmp_context->maximum_number_of_paths = 10000;
-        lnmp_context->min_length = 3;
-        lnmp_context->max_length = 5;
+        lnmp_context->min_length = 2;
+        lnmp_context->max_length = 3;
         lnmp_context->layers = NULL;
     } else {
         OSM_LOG(p_osm->sm.ucast_mgr.p_log, OSM_LOG_ERROR,
