@@ -285,9 +285,15 @@ static void print_layer(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_mgr, ui
     uint32_t i = 0, j = 0;
     layer_t *layer = NULL;
     link_t *link = NULL;
+    cl_qmap_t *port_tbl = &p_mgr->p_subn->port_guid_tbl;	/* 1 management port per switch + 1 or 2 ports for each Hca */
+    osm_port_t *p_port = NULL;
+    osm_node_t *p_node = NULL;
+    cl_map_item_t *item = NULL;
+    uint16_t base_lid = 0;
     vertex_t *adj_list = lnmp_context->adj_list;
     uint32_t number_of_layer_entries = lnmp_context->adj_list_size -1;
     layer_entry_t layer_entry;
+
     layer = &(lnmp_context->layers[layer_number]);
     if(layer) {
         OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG, "Printing layer: %" PRIu8 "\n\n", layer_number);
@@ -303,16 +309,24 @@ static void print_layer(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_mgr, ui
             OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
                 "Path to reach all other switches:\n");
             for(j = 0; j < number_of_layer_entries; j++) {
-                /* TODO fix */
-                link = get_link(layer, adj_list, i+1, j+1, adj_list[j+1].lid);
-                layer_entry = layer->entries[i][j];
-                if(!link) {
-                    OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
-                            "    dst_lid: %" PRIu16 " NO PATH IN THIS LAYER\n", adj_list[j+1].lid);
-                } else {
-                    OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
-                            "    dst_lid: %" PRIu16 " next_hop: %" PRIu16 " out_port: %" PRIu8 " hops %" PRIu8 "\n",
-                            adj_list[j+1].lid, adj_list[link->to].lid, layer_entry.port, layer_entry.hops);
+                for(item = cl_qmap_head(port_tbl); item != cl_qmap_end(port_tbl); item = cl_qmap_next(item)) {
+                    p_port = (osm_port_t *) item;
+                    p_node = p_port->p_node;
+                    if (osm_node_get_type(p_node) == IB_NODE_TYPE_CA || osm_node_get_type(p_node) == IB_NODE_TYPE_SWITCH) {
+                        base_lid = cl_ntoh16(osm_node_get_base_lid(p_node, 0));
+                        if(base_lid != lnmp_context->adj_list[i].lid) {
+                            link = get_link(layer, adj_list, i+1, 0, base_lid);
+                            layer_entry = layer->entries[lnmp_context->lid_port_map[adj_list[i+1].lid].layer_index][lnmp_context->lid_port_map[base_lid].layer_index];
+                            if(!link) {
+                                OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
+                                        "    dst_lid: %" PRIu16 " NO PATH IN THIS LAYER\n", base_lid);
+                            } else {
+                                OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
+                                        "    dst_lid: %" PRIu16 " next_hop: %" PRIu16 " out_port: %" PRIu8 " hops %" PRIu8 "\n",
+                                        base_lid, adj_list[link->to].lid, layer_entry.port, layer_entry.hops);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -951,12 +965,10 @@ void randomize_switch_pairs(uint64_t *switch_pairs, uint64_t start_index, uint64
         switch_pairs[i] = switch_pairs[j];
         switch_pairs[j] = temp;
     }
-
 }
 
 static int generate_pairs_list(lnmp_context_t *lnmp_context, uint32_t number_of_switch_endnode_pairs, node_t **sdp_priority_queue, uint64_t *switch_endnode_pairs)
 {
-    /* TODO ensure right size of switch_endnode_pairs and number_of_switch_endnode_pairs */
     uint32_t adj_list_size = lnmp_context->adj_list_size;
     uint8_t layer_number = 0;
     uint32_t index = number_of_switch_endnode_pairs - 1; 
@@ -1200,6 +1212,7 @@ ERROR:
     return -1;
 }
 
+/* TODO check */
 static void increase_link_weights(lnmp_context_t *lnmp_context, uint32_t **weights) 
 {
 	vertex_t *adj_list = (vertex_t *) lnmp_context->adj_list;
@@ -1221,6 +1234,7 @@ static int insert_layer_entries(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p
     layer_t *layer = &(lnmp_context->layers[layer_number]);
     uint32_t adj_list_size = lnmp_context->adj_list_size;
     vertex_t *adj_list = lnmp_context->adj_list;
+    port_index_t *lid_port_map = lnmp_context->lid_port_map;
 
 	cl_qlist_t *qlist = NULL;
 	cl_list_item_t *qlist_item = NULL;
@@ -1266,7 +1280,7 @@ static int insert_layer_entries(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p
             }
         }
         for (i = 0; i < adj_list_size-1; i++, is_ignored_by_port_prof = FALSE) {
-            entry = layer->entries[i][sw_dst_index - 1];
+            entry = layer->entries[lid_port_map[adj_list[i+1].lid].layer_index][min_lid_ho];
             if(entry.port != OSM_NO_PATH) {
                 sw_src = adj_list[i+1].sw;
                 OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
@@ -1427,6 +1441,7 @@ static void update_weights(osm_ucast_mgr_t * p_mgr, vertex_t * adj_list,
 		/* if no route goes thru this switch or the route was present before the dijkstra step we just performed -> cycle */
 		if (!(adj_list[i].used_link) || adj_list[i].sw->new_lft[lid] != OSM_NO_PATH)
 			continue;
+        /* TODO check if weight update is correct */
 		additional_weight = adj_list[i].num_hca;
 
 		j = i;
@@ -1624,7 +1639,6 @@ static int lnmp_generate_layer(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_
     free(switch_pairs);
 
     // insert all entries into the new_lft table
-    /* TODO */
     insert_layer_entries(lnmp_context, p_mgr, layer_number);
 
     return 0;
@@ -1860,7 +1874,6 @@ static int lnmp_perform_routing(void *context)
         print_layer(lnmp_context, p_mgr, layer_number);
     }
 
-    /* TODO */
     increase_link_weights(lnmp_context, weights);
 
     /* dealloc weights matrix, no longer needed */
