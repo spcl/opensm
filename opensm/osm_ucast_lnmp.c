@@ -1085,7 +1085,6 @@ static void update_layer_weights(layer_t *layer, vertex_t *adj_list, uint32_t *p
         if((last = path[i]))
             break;
     }
-    /* TODO rethink how the weight updates are being performed */    
     for(j = 0; j < i; j++) {
         if(!get_link(layer, adj_list, path[j], last, dst_lid))
             additional_weight += adj_list[path[j]].num_hca;
@@ -1212,7 +1211,6 @@ ERROR:
     return -1;
 }
 
-/* TODO check */
 static void increase_link_weights(lnmp_context_t *lnmp_context, uint32_t **weights) 
 {
 	vertex_t *adj_list = (vertex_t *) lnmp_context->adj_list;
@@ -1441,7 +1439,6 @@ static void update_weights(osm_ucast_mgr_t * p_mgr, vertex_t * adj_list,
 		/* if no route goes thru this switch or the route was present before the dijkstra step we just performed -> cycle */
 		if (!(adj_list[i].used_link) || adj_list[i].sw->new_lft[lid] != OSM_NO_PATH)
 			continue;
-        /* TODO check if weight update is correct */
 		additional_weight = adj_list[i].num_hca;
 
 		j = i;
@@ -1606,11 +1603,6 @@ static int lnmp_generate_layer(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_
                 break;
         }
         last = i;
-        /* TODO either delete or rewrite first component is switch lid vs switch index and second compenent is dst_lid vs dst_switch_index
-         * sanity check 
-        if(((uint64_t) path[0] << 32) + (uint64_t) path[last] != pair)
-            goto ERROR;
-        */
 
         for(i = 0; i <= last+1 - min_path_length; i++) {
         // decrease priority of all pairs that have a new non-minimal path, including the original
