@@ -33,7 +33,7 @@ typedef struct port_index {
     uint32_t previous_pairing_iteration; //used in the generation of pairings during the layer generation
 } port_index_t;
 
-static inline void set_defaul_port_index(port_index_t *entry) {
+static inline void set_default_port_index(port_index_t *entry) {
     entry->port = NULL;
     entry->layer_index = 0;
     entry->switch_index = 0;
@@ -315,7 +315,7 @@ static void print_layer(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_mgr, ui
                     if (osm_node_get_type(p_node) == IB_NODE_TYPE_CA || osm_node_get_type(p_node) == IB_NODE_TYPE_SWITCH) {
                         base_lid = cl_ntoh16(osm_node_get_base_lid(p_node, 0));
                         if(base_lid != lnmp_context->adj_list[i].lid) {
-                            link = get_link(layer, adj_list, i+1, 0, base_lid);
+                            link = get_link(lnmp_context, layer, adj_list, i+1, 0, base_lid);
                             layer_entry = layer->entries[lnmp_context->lid_port_map[adj_list[i+1].lid].layer_index][lnmp_context->lid_port_map[base_lid].layer_index];
                             if(!link) {
                                 OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
@@ -629,7 +629,6 @@ static int lnmp_build_graph(void *context)
     osm_ucast_mgr_t *p_mgr = (osm_ucast_mgr_t *) (lnmp_context->p_mgr);
     boolean_t has_fdr10 = (1 == p_mgr->p_subn->opt.fdr10) ? TRUE : FALSE;
     cl_qmap_t *port_tbl = &p_mgr->p_subn->port_guid_tbl;	/* 1 management port per switch + 1 or 2 ports for each Hca */
-    cl_qmap_t *node_tbl = &p_mgr->p_subn->node_guid_tbl;	/* contains all nodes in the subnet that includes HCA and switches */
     osm_port_t *p_port = NULL;
     cl_qmap_t *sw_tbl = &p_mgr->p_subn->sw_guid_tbl;
     cl_map_item_t *item = NULL;
@@ -705,10 +704,11 @@ static int lnmp_build_graph(void *context)
             max_lmc = max(max_lmc, 1 << lmc);
             total_num_hca += (1 << lmc);
             osm_port_get_lid_range_ho(p_port, &min_lid_ho, &max_lid_ho);
-            current_index = (lid_port_map[min_lid_ho].port) ? lid_port_map[min_lid_ho].index : next_index++;
+            current_index = (lid_port_map[min_lid_ho].port) ? lid_port_map[min_lid_ho].layer_index : next_index++;
             for(lid = min_lid_ho; lid <= max_lid_ho; lid++) {
                 lid_port_map[lid].port = p_port;
-                lid_port_map[lid].index = current_index;
+                lid_port_map[lid].layer_index = current_index;
+            }
         }
     }
     lnmp_context->lid_port_map = lid_port_map;
@@ -975,9 +975,9 @@ static int generate_pairs_list(lnmp_context_t *lnmp_context, uint32_t number_of_
     uint32_t prev_index = index;
     uint64_t key;
     boolean_t direction = FALSE; // = decreasing
-    uint32_t i = 0, j = 0, reset_index = 0, max_lid = lnmp_context->p_mgr->p_subn->max_ucast_lid_ho;
+    uint32_t i = 0, reset_index = 0, max_lid = lnmp_context->p_mgr->p_subn->max_ucast_lid_ho;
     port_index_t *lid_port_map = lnmp_context->lid_port_map; 
-    cl_qmap_t *port_tbl = &p_mgr->p_subn->port_guid_tbl;	/* 1 management port per switch + 1 or 2 ports for each Hca */
+    cl_qmap_t *port_tbl = &lnmp_context->p_mgr->p_subn->port_guid_tbl;	/* 1 management port per switch + 1 or 2 ports for each Hca */
     cl_map_item_t *item = NULL;
     osm_port_t *p_port = NULL;
     osm_node_t *p_node = NULL;
@@ -1016,7 +1016,7 @@ static int generate_pairs_list(lnmp_context_t *lnmp_context, uint32_t number_of_
         goto ERROR;
 
     if(prev_index != index)
-        randomize_switch_pairs(switch_pairs, index + 1, prev_index + 1);
+        randomize_switch_pairs(switch_endnode_pairs, index + 1, prev_index + 1);
 
     return 0;
 
@@ -1077,7 +1077,7 @@ static uint64_t get_path_weight(uint32_t *path, uint8_t path_length, uint32_t **
     return weight;
 }
 
-static void update_layer_weights(layer_t *layer, vertex_t *adj_list, uint32_t *path, uint32_t dst_lid, uint32_t **weights, uint8_t path_length)
+static void update_layer_weights(lnmp_context_t *lnmp_context, layer_t *layer, vertex_t *adj_list, uint32_t *path, uint32_t dst_lid, uint32_t **weights, uint8_t path_length)
 {
     uint8_t i = 0, j = 0;
     uint32_t last = 0, additional_weight = 0;
@@ -1086,7 +1086,7 @@ static void update_layer_weights(layer_t *layer, vertex_t *adj_list, uint32_t *p
             break;
     }
     for(j = 0; j < i; j++) {
-        if(!get_link(layer, adj_list, path[j], last, dst_lid))
+        if(!get_link(lnmp_context, layer, adj_list, path[j], last, dst_lid))
             additional_weight += adj_list[path[j]].num_hca;
         weights[path[j]-1][path[j+1]-1] += additional_weight;
     }
@@ -1110,7 +1110,7 @@ static int find_path(layer_t *layer, lnmp_context_t *lnmp_context, uint32_t **we
     uint32_t *current_path, *temp_path;
     uint32_t last = 0;
     link_t * forced_next = NULL;
-    uint8_t i = 0;
+    uint8_t i = 0, remote_port = 0;
     vertex_t *current;
     link_t *link;
     clean_path(*best_path, max_path_length); 
@@ -1118,12 +1118,16 @@ static int find_path(layer_t *layer, lnmp_context_t *lnmp_context, uint32_t **we
     osm_node_t *remote_node = NULL;
     osm_port_t *port = NULL;
 
+    allocate_new_path(&current_path, max_path_length);
+    if(!current_path)
+        goto ERROR;
+
     uint32_t src_switch = lid_port_map[src_lid].switch_index;
     uint32_t dst_switch = lid_port_map[dst_lid].switch_index;
     port = lid_port_map[dst_lid].port;
     if (!dst_switch && osm_node_get_type(port->p_node) == IB_NODE_TYPE_CA) {
-        if(port->p_phsyp && osm_link_is_healthy(port->p_physp)) {
-            remote_node = osm_node_get_remote_node(port->p_node, port->p_physp->port_num, &remote_node);
+        if(port->p_physp && osm_link_is_healthy(port->p_physp)) {
+            remote_node = osm_node_get_remote_node(port->p_node, port->p_physp->port_num, &remote_port);
             if (remote_node && (osm_node_get_type(remote_node) == IB_NODE_TYPE_SWITCH)) {
                 dst_switch = lid_port_map[cl_ntoh16(osm_node_get_base_lid(remote_node, 0))].switch_index;
             }
@@ -1132,10 +1136,7 @@ static int find_path(layer_t *layer, lnmp_context_t *lnmp_context, uint32_t **we
     if (!dst_switch || !src_switch)
         goto ERROR;
 
-    allocate_new_path(&current_path, max_path_length);
-    if(!current_path)
-        goto ERROR;
-    current_path[0] = src;
+    current_path[0] = src_switch;
     if(cl_list_insert_tail(&paths, current_path) != CL_SUCCESS)
         goto ERROR;
     
@@ -1163,7 +1164,7 @@ static int find_path(layer_t *layer, lnmp_context_t *lnmp_context, uint32_t **we
         } else {
             if(i+1 < max_path_length) {
                 current = &lnmp_context->adj_list[last];
-                forced_next = get_link(layer, lnmp_context->adj_list, last, dst);
+                forced_next = get_link(lnmp_context, layer, lnmp_context->adj_list, last, dst_switch, dst_lid);
 
                 for(link = (forced_next) ? forced_next : current->links; link != NULL; link = link->next) {
                     if(!path_contains(current_path, max_path_length, link->to) && current_path_weight + weights[last - 1][link->to - 1] < best_path_weight) {
@@ -1191,7 +1192,7 @@ static int find_path(layer_t *layer, lnmp_context_t *lnmp_context, uint32_t **we
     
     /* TODO review if not updating the weights for switch to switch paths makes sense */
     if(*best_path && (*best_path)[0] && dst_lid != lnmp_context->adj_list[dst_switch].lid)
-        update_layer_weights(layer, lnmp_context->adj_list, *best_path, dst_lid, weights, max_path_length);
+        update_layer_weights(lnmp_context, layer, lnmp_context->adj_list, *best_path, dst_lid, weights, max_path_length);
 
     /* At this point current_path is equal to NULL and paths is empty, so only need to drain path_pool */
     while((current_path = (uint32_t *) cl_list_remove_head(&path_pool))) {
@@ -1239,44 +1240,21 @@ static int insert_layer_entries(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p
 	osm_switch_t *sw_src = NULL;
 	osm_port_t *port = NULL;
 	osm_physp_t *p = NULL;
-	osm_node_t *remote_node = NULL;
-    uint64_t guid = 0;
-	uint32_t i = 0, sw_dst_index = 0;
+	uint32_t i = 0;
 	uint16_t lid = 0, min_lid_ho = 0, max_lid_ho = 0;
     layer_entry_t entry;
-	uint8_t remote_port = 0;
 	boolean_t is_ignored_by_port_prof = FALSE;
 
 	qlist = &p_mgr->port_order_list;
 	for (qlist_item = cl_qlist_head(qlist);
 	     qlist_item != cl_qlist_end(qlist);
-	     qlist_item = cl_qlist_next(qlist_item), guid = 0) {
+	     qlist_item = cl_qlist_next(qlist_item)) {
 		port = (osm_port_t *)cl_item_obj(qlist_item, port, list_item);
 
         osm_port_get_lid_range_ho(port, &min_lid_ho, &max_lid_ho);
         lid = min_lid_ho + layer_number;
         if(lid > max_lid_ho)
             continue;
-		/* calculate shortest path with dijkstra from node to all switches/Hca */
-		if (osm_node_get_type(port->p_node) == IB_NODE_TYPE_CA) {
-            if(port->p_physp && osm_link_is_healthy(port->p_physp)) {
-                remote_node = osm_node_get_remote_node(port->p_node, port->p_physp->port_num, &remote_port);
-                if(remote_node && (osm_node_get_type(remote_node) == IB_NODE_TYPE_SWITCH)) {
-                    guid = cl_ntoh64(osm_node_get_node_guid(remote_node)); 
-                }
-            }
-        } else if (osm_node_get_type(port->p_node) == IB_NODE_TYPE_SWITCH) {
-            guid = cl_ntoh64(osm_node_get_node_guid(port->p_node));
-        }
-        if(!guid) {
-            continue;
-        }
-        for (i = 1; i < adj_list_size; i++) {
-            if(guid == adj_list[i].guid) {
-                sw_dst_index = i;
-                break;
-            }
-        }
         for (i = 0; i < adj_list_size-1; i++, is_ignored_by_port_prof = FALSE) {
             entry = layer->entries[lid_port_map[adj_list[i+1].lid].layer_index][min_lid_ho];
             if(entry.port != OSM_NO_PATH) {
@@ -1569,7 +1547,7 @@ static int lnmp_generate_layer(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_
     uint16_t number_of_endnodes_and_switches = lnmp_context->number_of_endnodes_and_switches;
     vertex_t *adj_list = lnmp_context->adj_list;
     uint64_t pair;
-    uint64_t *switch_pairs;
+    uint64_t *switch_endnode_pairs;
     uint32_t switch_endnode_pairs_size = (adj_list_size - 1) * (number_of_endnodes_and_switches - 1), added_paths = 0;
     uint32_t current_switch_pair = 0;
     uint8_t i = 0;
@@ -1606,7 +1584,7 @@ static int lnmp_generate_layer(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_
 
         for(i = 0; i <= last+1 - min_path_length; i++) {
         // decrease priority of all pairs that have a new non-minimal path, including the original
-            if(get_link(layer, adj_list, path[i], path[last], (uint32_t) (pair & 0xffffffff)))
+            if(get_link(lnmp_context, layer, adj_list, path[i], path[last], (uint32_t) (pair & 0xffffffff)))
                 break;
             decrease_priority(sdp_priority_queue, number_of_levels, ((uint64_t) adj_list[path[i]].lid << 32) + (pair & 0xffffffff));
         }
@@ -1628,7 +1606,7 @@ static int lnmp_generate_layer(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_
             free_path(&path);
     }
 
-    free(switch_pairs);
+    free(switch_endnode_pairs);
 
     // insert all entries into the new_lft table
     insert_layer_entries(lnmp_context, p_mgr, layer_number);
@@ -1637,8 +1615,8 @@ static int lnmp_generate_layer(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_
 ERROR:
     if(path)
         free_path(&path);
-    if(switch_pairs)
-        free(switch_pairs);
+    if(switch_endnode_pairs)
+        free(switch_endnode_pairs);
     return -1;
 }
 
