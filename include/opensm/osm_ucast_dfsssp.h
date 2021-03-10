@@ -58,6 +58,7 @@ typedef struct link {
 	uint32_t to;		/* index of the neighbor in the adjazenz list (end of the link) */
 	uint8_t to_port;	/* port on the side of the neighbor (needed for the LFT) */
 	uint64_t weight;	/* link weight */
+    boolean_t *layer_mapping; /* i-th boolean is true if present in layer i (used in rues routing) */
 	struct link *next;
 } link_t;
 
@@ -124,6 +125,7 @@ static inline void set_default_link(link_t * link)
 	link->to_port = 0;
 	link->weight = 0;
 	link->next = NULL;
+    link->layer_mapping = NULL;
 }
 
 static inline void set_default_vertex(vertex_t * vertex)
