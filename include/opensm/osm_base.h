@@ -300,6 +300,24 @@ BEGIN_C_DECLS
 #endif /* __WIN__ */
 /***********/
 
+/****d* OpenSM: OSM_DEFAULT_RUES_CONF_FILE
+* NAME
+*	OSM_DEFAULT_RUES_CONF_FILE
+*
+* DESCRIPTION
+*	Specifies the default file name for extra random uniform edge smapling configuration
+*
+* SYNOPSIS
+*/
+#ifdef __WIN__
+#define OSM_DEFAULT_RUES_CONF_FILE strcat(GetOsmCachePath(), "osm-rues.conf")
+#elif defined(OPENSM_CONFIG_DIR)
+#define OSM_DEFAULT_RUES_CONF_FILE OPENSM_CONFIG_DIR "/rues.conf"
+#else
+#define OSM_DEFAULT_RUES_CONF_FILE "/etc/opensm/rues.conf"
+#endif /* __WIN__ */
+/***********/
+
 /****d* OpenSM: OSM_DEFAULT_PREFIX_ROUTES_FILE
 * NAME
 *	OSM_DEFAULT_PREFIX_ROUTES_FILE

@@ -81,6 +81,7 @@ extern int osm_ucast_nue_setup(struct osm_routing_engine *, osm_opensm_t *);
 extern int osm_ucast_sssp_setup(struct osm_routing_engine *, osm_opensm_t *);
 extern int osm_ucast_dfsssp_setup(struct osm_routing_engine *, osm_opensm_t *);
 extern int osm_ucast_lnmp_setup(struct osm_routing_engine *, osm_opensm_t *);
+extern int osm_ucast_rues_setup(struct osm_routing_engine *, osm_opensm_t *);
 
 /*
  * Local types
@@ -175,6 +176,11 @@ static builtin_routing_engine_module_t static_routing_modules[] = {
         "lnmp",
         OSM_ROUTING_ENGINE_TYPE_LNMP,
         osm_ucast_lnmp_setup
+    },
+    {
+        "rues",
+        OSM_ROUTING_ENGINE_TYPE_RUES,
+        osm_ucast_rues_setup
     }
 };
 

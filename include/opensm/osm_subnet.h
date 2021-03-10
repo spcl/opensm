@@ -329,6 +329,7 @@ typedef struct osm_subn_opt {
 	boolean_t sa_db_dump;
 	char *torus_conf_file;
     char *lnmp_conf_file;
+    char *rues_conf_file;
 	boolean_t do_mesh_analysis;
 	boolean_t exit_on_fatal;
 	boolean_t honor_guid2lid_file;
@@ -605,6 +606,10 @@ typedef struct osm_subn_opt {
 *
 *	lnmp_conf_file
 *	    Name of the file with extra configuration info for lnmp routing
+*	    engine.
+*
+*	rues_conf_file
+*	    Name of the file with extra configuration info for rues routing
 *	    engine.
 *
 *	exit_on_fatal

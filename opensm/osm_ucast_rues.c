@@ -1143,7 +1143,7 @@ static ib_api_status_t rues_do_mcast_routing(void *context, osm_mgrp_box_t *mbox
 
 int osm_ucast_rues_setup(struct osm_routing_engine *r, osm_opensm_t *p_osm)
 {
-    rues_context_t *rues_context = rues_context_create(p_osm, OSM_ROUTING_ENGINE_TYPE_LNMP);
+    rues_context_t *rues_context = rues_context_create(p_osm, OSM_ROUTING_ENGINE_TYPE_RUES);
     if(!rues_context) {
         return 1; /* alloc failed -> skip this routing */
     }

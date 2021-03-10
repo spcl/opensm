@@ -189,9 +189,10 @@ static const char *module_name_str[] = {
 	"osm_congestion_control.c",
 	"osm_ucast_nue.c",
     "osm_ucast_lnmp.c",
+    "osm_ucast_rues.c",
 	/* Add new module names here ... */
 	/* FILE_ID define in those modules must be identical to index here */
-	/* last FILE_ID is currently 91 */
+	/* last FILE_ID is currently 92 */
 };
 
 #define MOD_NAME_STR_UNKNOWN_VAL (ARR_SIZE(module_name_str))
@@ -843,6 +844,7 @@ static const opt_rec_t opt_tbl[] = {
 	{ "sa_db_dump", OPT_OFFSET(sa_db_dump), opts_parse_boolean, NULL, 1 },
 	{ "torus_config", OPT_OFFSET(torus_conf_file), opts_parse_charp, NULL, 1 },
 	{ "lnmp_config", OPT_OFFSET(lnmp_conf_file), opts_parse_charp, NULL, 1 },
+	{ "rues_config", OPT_OFFSET(rues_conf_file), opts_parse_charp, NULL, 1 },
 	{ "do_mesh_analysis", OPT_OFFSET(do_mesh_analysis), opts_parse_boolean, NULL, 1 },
 	{ "exit_on_fatal", OPT_OFFSET(exit_on_fatal), opts_parse_boolean, NULL, 1 },
 	{ "honor_guid2lid_file", OPT_OFFSET(honor_guid2lid_file), opts_parse_boolean, NULL, 1 },
@@ -1113,6 +1115,7 @@ static void subn_opt_destroy(IN osm_subn_opt_t * p_opt)
 	free(p_opt->sa_db_file);
 	free(p_opt->torus_conf_file);
     free(p_opt->lnmp_conf_file);
+    free(p_opt->rues_conf_file);
 #ifdef ENABLE_OSM_PERF_MGR
 	free(p_opt->event_db_dump_file);
 #endif /* ENABLE_OSM_PERF_MGR */
@@ -1667,6 +1670,7 @@ void osm_subn_set_default_opt(IN osm_subn_opt_t * p_opt)
 	p_opt->sa_db_dump = FALSE;
 	p_opt->torus_conf_file = strdup(OSM_DEFAULT_TORUS_CONF_FILE);
 	p_opt->lnmp_conf_file = strdup(OSM_DEFAULT_LNMP_CONF_FILE);
+	p_opt->rues_conf_file = strdup(OSM_DEFAULT_RUES_CONF_FILE);
 	p_opt->do_mesh_analysis = FALSE;
 	p_opt->exit_on_fatal = TRUE;
 	p_opt->congestion_control = FALSE;
@@ -2589,7 +2593,7 @@ void osm_subn_output_conf(FILE *out, IN osm_subn_opt_t * p_opts)
 		"# commas so that specific ordering of routing algorithms will\n"
 		"# be tried if earlier routing engines fail.\n"
 		"# Supported engines: minhop, updn, dnup, file, ftree, lash,\n"
-		"#    dor, torus-2QoS, nue, dfsssp, sssp, lnmp\n"
+		"#    dor, torus-2QoS, nue, dfsssp, sssp, lnmp, rues\n"
 		"routing_engine %s\n\n", p_opts->routing_engine_names ?
 		p_opts->routing_engine_names : null_str);
 
@@ -2721,6 +2725,10 @@ void osm_subn_output_conf(FILE *out, IN osm_subn_opt_t * p_opts)
 		"# LNMP configuration file name\nlnmp_config %s\n\n",
 		p_opts->lnmp_conf_file ? p_opts->lnmp_conf_file : null_str);
     
+	fprintf(out,
+		"# RUES configuration file name\nrues_config %s\n\n",
+		p_opts->rues_conf_file ? p_opts->rues_conf_file : null_str);
+
 	fprintf(out,
 		"#\n# HANDOVER - MULTIPLE SMs OPTIONS\n#\n"
 		"# SM priority used for deciding who is the master\n"
