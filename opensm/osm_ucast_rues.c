@@ -34,10 +34,9 @@ typedef struct rues_context {
     boolean_t first_layer_complete;
 } rues_context_t;
 
-/* TODO */
 static void print_layer(rues_context_t *rues_context, osm_ucast_mgr_t *p_mgr, uint8_t layer_number)
 {
-    uint32_t i = 0, j = 0;
+    uint32_t i = 0;
     link_t *link = NULL;
     vertex_t *adj_list = rues_context->adj_list;
     uint32_t number_of_layer_entries = rues_context->adj_list_size -1;
@@ -52,20 +51,18 @@ static void print_layer(rues_context_t *rues_context, osm_ucast_mgr_t *p_mgr, ui
         OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
             "   num_hca = %" PRIu32 "\n", adj_list[i+1].num_hca);
         OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
-            "Path to reach all other switches:\n");
-        /* TODO fix */
-        /*for(j = 0; j < number_of_layer_entries; j++) {
-            link = get_link(layer, adj_list, i+1, j+1);
-            layer_entry = layer->entries[i][j];
-            if(!link) {
+            "Edges included in this layer to other switches:\n");
+        link = adj_list[i+1].links;
+        while(link) {
+            if(link->layer_mapping[layer_number]) {
                 OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
-                        "    dst_lid: %" PRIu16 " NO PATH IN THIS LAYER\n", adj_list[j+1].lid);
+                        "    dst_sw_lid: %" PRIu16 " out_port: %" PRIu8 "\n",
+                        adj_list[link->to].lid, link->from_port);
             } else {
                 OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
-                        "    dst_lid: %" PRIu16 " next_hop: %" PRIu16 " out_port: %" PRIu8 " hops %" PRIu8 "\n",
-                        adj_list[j+1].lid, adj_list[link->to].lid, layer_entry.port, layer_entry.hops);
+                        "    dst_sw_lid: %" PRIu16 "  dst_sw_idx = %" PRIu32 "NO LINK IN THIS LAYER\n", adj_list[link->to].lid, link->to);
             }
-        } */
+        }
     }
 }
 
@@ -122,7 +119,6 @@ static void rues_context_destroy(void *context)
 {
     rues_context_t *rues_context = (rues_context_t *) context;
     vertex_t *adj_list = (vertex_t *) (rues_context->adj_list);
-    uint32_t j = 0;
     free_adj_list(&adj_list, rues_context->adj_list_size);
     rues_context->adj_list = NULL;
     rues_context->adj_list_size = 0;
@@ -157,14 +153,13 @@ static void apply_index_update(const void * context, const size_t new_index)
         heap_elem->heap_index = new_index;
 }
 
-/* TODO */
 static int dijkstra(osm_ucast_mgr_t * p_mgr, cl_heap_t * p_heap,
         vertex_t * adj_list, uint32_t adj_list_size,
         osm_port_t * port, uint16_t lid, boolean_t use_link_subset, uint8_t layer_number)
 {
     uint32_t i = 0, j = 0, index = 0;
     osm_node_t *remote_node = NULL;
-    uint8_t remote_port = 0, fixed_port = 0;
+    uint8_t remote_port = 0;
     vertex_t *current = NULL;
     link_t *link = NULL;
     uint64_t guid = 0;
@@ -354,7 +349,6 @@ static int rues_build_graph(void *context)
     uint8_t lmc = 0;
     uint16_t sm_lid = 0;
     cl_heap_t heap;
-    uint8_t layer_number = 0;
 
     OSM_LOG_ENTER(p_mgr->p_log);
     OSM_LOG(p_mgr->p_log, OSM_LOG_VERBOSE,
@@ -493,7 +487,7 @@ static int rues_build_graph(void *context)
                 }
                 goto ERROR;
             }
-            for(j = 0; j < rues_context->number_of_layer; j++)
+            for(j = 0; j < rues_context->number_of_layers; j++)
                 mapping[j] = TRUE;
             link->layer_mapping = mapping; 
 
@@ -752,7 +746,7 @@ static int fill_lft_entries(rues_context_t *rues_context, osm_ucast_mgr_t *p_mgr
 					     port);
 
 			/* make an update for the linear forwarding tables of the switches */
-			err = update_lft(p_mgr, adj_list, adj_list_size, port, lid);
+			err = update_lft(p_mgr, adj_list, adj_list_size, port, lid, rues_context->ensure_connected);
 			if (err)
 				goto ERROR;
 
@@ -803,11 +797,9 @@ static inline uint8_t random_number(uint8_t min, uint8_t range)
 
 static int rues_generate_layer(rues_context_t *rues_context, osm_ucast_mgr_t *p_mgr, uint8_t layer_number)
 {
-    osm_ucast_mgr_t *p_mgr = (osm_ucast_mgr_t *) (rues_context->p_mgr);
     uint32_t adj_list_size = rues_context->adj_list_size;
     vertex_t *adj_list = rues_context->adj_list;
-    uint32_t *path = NULL;
-    uint32_t i = 0, undiscov = 0, max_num_undiscov = 0;
+    uint32_t i = 0, undiscov = 0, max_num_undiscov = 0, err = 0;
     link_t *link = NULL;
     boolean_t connected = FALSE;
 
@@ -824,7 +816,7 @@ static int rues_generate_layer(rues_context_t *rues_context, osm_ucast_mgr_t *p_
                     goto ERROR;
                 if(!layer_number && rues_context->first_layer_complete)
                     break;
-                link->layer_mapping[layer_number] = random_number(0, 100) < ruse_context->p;
+                link->layer_mapping[layer_number] = random_number(0, 100) < rues_context->p;
                 link = link->next;
             }
         }
@@ -869,7 +861,7 @@ static int rues_perform_routing(void *context)
     uint16_t min_lid_ho = 0;
 	uint64_t guid = 0;
 
-    link_t *link = NULL, *tmp = NULL;
+    link_t *link = NULL;
 
     cl_qmap_t *sw_tbl = &p_mgr->p_subn->sw_guid_tbl;
 	vertex_t **sw_list = NULL;
