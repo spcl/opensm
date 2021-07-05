@@ -1034,7 +1034,7 @@ static int rues_perform_routing(void *context)
         while(link) {
             if(link->layer_mapping) {
                 for(j = 0; j < rues_context->number_of_layers; j++) {
-                    link->layer_mapping[i] = TRUE;
+                    link->layer_mapping[j] = TRUE;
                 }
             }
             link = link->next;
