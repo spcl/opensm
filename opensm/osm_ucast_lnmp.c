@@ -266,7 +266,9 @@ void print_weights(osm_ucast_mgr_t *p_mgr, vertex_t *adj_list, uint32_t **weight
 static link_t *get_link(lnmp_context_t *lnmp_context, layer_t *layer, vertex_t *adj_list, uint32_t src_sw_index, uint32_t dst_sw_index, uint32_t dst_lid)
 {
     link_t * link = NULL;
-    uint8_t out_port = layer->entries[lnmp_context->lid_port_map[adj_list[src_sw_index].lid].layer_index][lnmp_context->lid_port_map[dst_lid].layer_index].port;
+    port_index_t src_port_index = lnmp_context->lid_port_map[adj_list[src_sw_index].lid];
+    port_index_t dst_port_index = lnmp_context->lid_port_map[dst_lid];
+    uint8_t out_port = layer->entries[src_port_index.layer_index][dst_port_index.layer_index].port;
 
     if(out_port != OSM_NO_PATH) {
         link = adj_list[src_sw_index].links;
@@ -348,7 +350,7 @@ static lnmp_context_t *lnmp_context_create(osm_opensm_t *p_osm, osm_routing_engi
         lnmp_context->vl_split_count = NULL;
 
         lnmp_context->number_of_layers = 1;
-        lnmp_context->maximum_number_of_paths = 10000;
+        lnmp_context->maximum_number_of_paths = 100000;
         lnmp_context->number_of_endnodes_and_switches = 0;
         lnmp_context->lid_port_map = NULL;
         lnmp_context->min_length = 2;
@@ -698,8 +700,7 @@ static int lnmp_build_graph(void *context)
     for (item = cl_qmap_head(port_tbl); item != cl_qmap_end(port_tbl);
             item = cl_qmap_next(item)) {
         p_port = (osm_port_t *) item;
-        if (osm_node_get_type(p_port->p_node) == IB_NODE_TYPE_CA ||
-                osm_node_get_type(p_port->p_node) == IB_NODE_TYPE_SWITCH) {
+        if (osm_node_get_type(p_port->p_node) == IB_NODE_TYPE_SWITCH) {
             lmc = osm_port_get_lmc(p_port);
             max_lmc = max(max_lmc, 1 << lmc);
             total_num_hca += (1 << lmc);
@@ -711,6 +712,22 @@ static int lnmp_build_graph(void *context)
             }
         }
     }
+    for (item = cl_qmap_head(port_tbl); item != cl_qmap_end(port_tbl);
+            item = cl_qmap_next(item)) {
+        p_port = (osm_port_t *) item;
+        if (osm_node_get_type(p_port->p_node) == IB_NODE_TYPE_CA) {
+            lmc = osm_port_get_lmc(p_port);
+            max_lmc = max(max_lmc, 1 << lmc);
+            total_num_hca += (1 << lmc);
+            osm_port_get_lid_range_ho(p_port, &min_lid_ho, &max_lid_ho);
+            current_index = (lid_port_map[min_lid_ho].port) ? lid_port_map[min_lid_ho].layer_index : next_index++;
+            for(lid = min_lid_ho; lid <= max_lid_ho; lid++) {
+                lid_port_map[lid].port = p_port;
+                lid_port_map[lid].layer_index = current_index;
+            }
+        }
+    }
+
     lnmp_context->lid_port_map = lid_port_map;
     num_nodes = next_index;
     lnmp_context->number_of_endnodes_and_switches = num_nodes;
