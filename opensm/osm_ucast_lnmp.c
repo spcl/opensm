@@ -599,8 +599,8 @@ static int dijkstra(osm_ucast_mgr_t * p_mgr, cl_heap_t * p_heap,
         for (link = current->links; link != NULL; link = link->next) {
             if ((adj_list[link->to].state != DISCOVERED)
                     && (current->distance + link->weight <
-                        adj_list[link->to].distance)
-                    && (!check_lft || (adj_list[link->to].sw->new_lft[lid] == OSM_NO_PATH))) {
+                        adj_list[link->to].distance)) {
+                    //&& (!check_lft || (adj_list[link->to].sw->new_lft[lid] == OSM_NO_PATH))) {
                 fixed_port = (check_lft) ? adj_list[link->to].sw->new_lft[lid] : OSM_NO_PATH;
                 if(fixed_port == OSM_NO_PATH || fixed_port == link->to_port) {
                     adj_list[link->to].used_link = link;
@@ -1868,12 +1868,14 @@ static int lnmp_perform_routing(void *context)
         free(weights[i]);
     }
     free(weights);
+    weights = NULL;
 
     /* priority queue no longer needed */
     for(i = 0; i < lnmp_context->number_of_layers + 1; i++) {
         destroy_node(sdp_priority_queue[i]); 
     }
     free(sdp_priority_queue);
+    sdp_priority_queue = NULL;
 
     // fill remaining entries using dijkstra
     fill_remaining_lft_entries(lnmp_context, p_mgr);
