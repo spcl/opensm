@@ -202,6 +202,16 @@ static void show_usage(void)
 	       "          Defaults to 1 to enforce deadlock-freedom even if QoS is not\n"
 	       "          enabled. Set to 0 if Nue should automatically determine and\n"
 	       "          choose maximum supported by the fabric, or any integer >= 1.\n\n");
+	printf("--lnmp_max_num_paths <number paths>\n"
+	       "          Sets the maximum number of paths to be used by LNMP routing for each routing layer.\n"
+	       "          Defaults to 0, which results in a maximum number of 100000 paths per layer.\n\n");
+	printf("--lnmp_min_path_len <min length>\n"
+	       "          Sets the minimum length each path that is a added to a layer needs to have.\n"
+	       "          This constraint is not applied to the first layer, which is always routed minimally.\n"
+	       "          Defaults to 2, the diameter of SF MMS topologies.\n\n");
+	printf("--lnmp_max_path_len <max length>\n"
+	       "          Sets the maximum length each path that is a added to a layer is allowed to have.\n"
+	       "          Defaults to 3, one hop longer than the diameter of SF MMS topologies.\n\n");
 	printf("--connect_roots, -z\n"
 	       "          This option enforces routing engines (up/down and \n"
 	       "          fat-tree) to make connectivity between root switches\n"
@@ -713,6 +723,9 @@ int main(int argc, char *argv[])
         {"lnmp_config", 1, NULL, 18},
 		{"guid_routing_order_no_scatter", 0, NULL, 13},
 		{"nue_max_num_vls", 1, NULL, 15},
+		{"lnmp_max_num_paths", 1, NULL, 19},
+		{"lnmp_min_path_len", 1, NULL, 20},
+		{"lnmp_max_path_len", 1, NULL, 21},
 		{"dump_files_dir", 1, NULL, 17},
 		{NULL, 0, NULL, 0}	/* Required at the end of the array */
 	};
@@ -1182,6 +1195,18 @@ int main(int argc, char *argv[])
 			}
 			opt.nue_max_num_vls = (uint8_t) temp;
 			printf(" Nue maximum #VLs = %d\n", opt.nue_max_num_vls);
+			break;
+		case 19:
+			opt.lnmp_max_num_paths = (uint32_t) strtoul(optarg, NULL, 0);
+			printf(" LNMP maximum #paths per layer = %d\n", opt.lnmp_max_num_paths);
+			break;
+		case 20:
+			opt.lnmp_min_path_len = (uint8_t) strtoul(optarg, NULL, 0);
+			printf(" LNMP minimum path length = %d\n", opt.lnmp_min_path_len);
+			break;
+		case 21:
+			opt.lnmp_max_path_len = (uint8_t) strtoul(optarg, NULL, 0);
+			printf(" LNMP maximum path length = %d\n", opt.lnmp_max_path_len);
 			break;
 		case 17:
 			SET_STR_OPT(opt.dump_files_dir, optarg);

@@ -389,6 +389,9 @@ typedef struct osm_subn_opt {
 	boolean_t nue_include_switches;	/* control how nue treats switches */
 	char *per_module_logging_file;
 	boolean_t quasi_ftree_indexing;
+	uint64_t lnmp_max_num_paths;
+	uint8_t lnmp_min_path_len;
+	uint8_t lnmp_max_path_len;
 } osm_subn_opt_t;
 /*
 * FIELDS

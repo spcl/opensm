@@ -62,7 +62,7 @@ typedef struct lnmp_context {
     uint8_t number_of_layers;
     uint16_t number_of_endnodes_and_switches;
     port_index_t *lid_port_map;
-    uint64_t maximum_number_of_paths;
+    uint32_t maximum_number_of_paths;
     uint8_t min_length;
     uint8_t max_length;
     layer_t *layers;
@@ -350,11 +350,11 @@ static lnmp_context_t *lnmp_context_create(osm_opensm_t *p_osm, osm_routing_engi
         lnmp_context->vl_split_count = NULL;
 
         lnmp_context->number_of_layers = 1;
-        lnmp_context->maximum_number_of_paths = 100000;
         lnmp_context->number_of_endnodes_and_switches = 0;
         lnmp_context->lid_port_map = NULL;
-        lnmp_context->min_length = 2;
-        lnmp_context->max_length = 3;
+        lnmp_context->maximum_number_of_paths = lnmp_context->p_mgr->p_subn->opt.lnmp_max_num_paths;
+        lnmp_context->min_length = lnmp_context->p_mgr->p_subn->opt.lnmp_min_path_len;
+        lnmp_context->max_length = lnmp_context->p_mgr->p_subn->opt.lnmp_max_path_len;
         lnmp_context->layers = NULL;
     } else {
         OSM_LOG(p_osm->sm.ucast_mgr.p_log, OSM_LOG_ERROR,
