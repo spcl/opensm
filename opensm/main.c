@@ -208,6 +208,13 @@ static void show_usage(void)
 	       "          and in this way be IBA compliant. In many cases,\n"
 	       "          this can violate \"pure\" deadlock free algorithm, so\n"
 	       "          use it carefully.\n\n");
+	printf("--rues_prob <p>\n"
+	       "          Sets the probability for an edge to be included in a layer.\n"
+	       "          Defaults to 0.6\n\n");
+	printf("--rues_connected\n"
+	       "          This option ensures that each randomly created layer is connected.\n\n");
+	printf("--rues_first_complete\n"
+	       "          This option ensures that the first layer is complete.\n\n");
 	printf("--ucast_cache, -A\n"
 	       "          This option enables unicast routing cache to prevent\n"
 	       "          routing recalculation (which is a heavy task in a\n"
@@ -719,6 +726,9 @@ int main(int argc, char *argv[])
 		{"guid_routing_order_no_scatter", 0, NULL, 13},
 		{"nue_max_num_vls", 1, NULL, 15},
 		{"dump_files_dir", 1, NULL, 17},
+		{"rues_prob", 1, NULL, 22},
+		{"rues_connected", 0, NULL, 23},
+		{"rues_first_complete", 0, NULL, 24},
 		{NULL, 0, NULL, 0}	/* Required at the end of the array */
 	};
 
@@ -1194,6 +1204,16 @@ int main(int argc, char *argv[])
 			break;
 		case 17:
 			SET_STR_OPT(opt.dump_files_dir, optarg);
+			break;
+		case 22:
+			opt.rues_prob = (uint8_t) strtoul(optarg, NULL, 0);
+			printf(" RUES probability = %d\n", opt.rues_prob);
+			break;
+		case 23:
+			opt.rues_connected = TRUE;
+			break;
+		case 24:
+			opt.rues_first_complete = TRUE;
 			break;
 		case 'h':
 		case '?':

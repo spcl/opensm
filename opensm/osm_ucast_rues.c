@@ -62,6 +62,7 @@ static void print_layer(rues_context_t *rues_context, osm_ucast_mgr_t *p_mgr, ui
                 OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
                         "    dst_sw_lid: %" PRIu16 "  dst_sw_idx = %" PRIu32 "NO LINK IN THIS LAYER\n", adj_list[link->to].lid, link->to);
             }
+	    link = link->next;
         }
     }
 }
@@ -81,9 +82,10 @@ static rues_context_t *rues_context_create(osm_opensm_t *p_osm, osm_routing_engi
         rues_context->vl_split_count = NULL;
 
         rues_context->number_of_layers = 1;
-        rues_context->p = 60;
-        rues_context->ensure_connected = TRUE;
-        rues_context->first_layer_complete = TRUE;
+        //rues_context->p = rues_context->p_mgr->p_subn->opt.rues_prob;
+        rues_context->p = 5;
+        rues_context->ensure_connected = rues_context->p_mgr->p_subn->opt.rues_connected;
+        rues_context->first_layer_complete = rues_context->p_mgr->p_subn->opt.rues_first_complete;
     } else {
         OSM_LOG(p_osm->sm.ucast_mgr.p_log, OSM_LOG_ERROR,
                 "ERR AD04: cannot allocate memory for rues_context in rues_context_create\n");
@@ -842,8 +844,11 @@ static int rues_generate_layer(rues_context_t *rues_context, osm_ucast_mgr_t *p_
                 }
             }
             connected = max_num_undiscov >= undiscov;
+	    OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
+		    "RUES failed to establish a connected layer, p is %" PRIu8 " and the num undiscovered is %" PRIu32 " go again\n",
+		    rues_context->p, undiscov);
         }
-    } while (rues_context->ensure_connected && connected);
+    } while (rues_context->ensure_connected && !connected);
 
     return 0;
 ERROR:
