@@ -82,8 +82,7 @@ static rues_context_t *rues_context_create(osm_opensm_t *p_osm, osm_routing_engi
         rues_context->vl_split_count = NULL;
 
         rues_context->number_of_layers = 1;
-        //rues_context->p = rues_context->p_mgr->p_subn->opt.rues_prob;
-        rues_context->p = 5;
+        rues_context->p = rues_context->p_mgr->p_subn->opt.rues_prob;
         rues_context->ensure_connected = rues_context->p_mgr->p_subn->opt.rues_connected;
         rues_context->first_layer_complete = rues_context->p_mgr->p_subn->opt.rues_first_complete;
     } else {
@@ -825,7 +824,7 @@ static int rues_generate_layer(rues_context_t *rues_context, osm_ucast_mgr_t *p_
 
         sm_lid = p_mgr->p_subn->master_sm_base_lid;
         p_port = osm_get_port_by_lid(p_mgr->p_subn, sm_lid);
-        err = dijkstra(p_mgr, &heap, adj_list, adj_list_size, p_port, sm_lid, false, layer_number);
+        err = dijkstra(p_mgr, &heap, adj_list, adj_list_size, p_port, sm_lid, true, layer_number);
 
         if (err) {
             goto ERROR;
@@ -847,6 +846,7 @@ static int rues_generate_layer(rues_context_t *rues_context, osm_ucast_mgr_t *p_
 	    OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
 		    "RUES failed to establish a connected layer, p is %" PRIu8 " and the num undiscovered is %" PRIu32 " go again\n",
 		    rues_context->p, undiscov);
+	    undiscov = 0;
         }
     } while (rues_context->ensure_connected && !connected);
 

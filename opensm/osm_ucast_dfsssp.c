@@ -498,7 +498,7 @@ Exit:
 /* calculate the path from source to destination port;
    new channels are added directly to the cdg
 */
-static int update_channel_dep_graph(cdg_node_t ** cdg_root,
+static int update_channel_dep_graph(osm_ucast_mgr_t *p_mgr, cdg_node_t ** cdg_root,
 				    osm_port_t * src_port, uint16_t slid,
 				    osm_port_t * dest_port, uint16_t dlid)
 {
@@ -531,8 +531,14 @@ static int update_channel_dep_graph(cdg_node_t ** cdg_root,
 		local_node = remote_node;
 		local_port = local_node->sw->new_lft[dlid];
 		/* sanity check: local_port must be set or routing is broken */
-		if (local_port == OSM_NO_PATH)
-			goto ERROR;
+		if (local_port == OSM_NO_PATH) {
+ 			OSM_LOG(p_mgr->
+ 				p_log,
+ 				OSM_LOG_ERROR,
+ 				"ERR AD54: cannot remove deadlocks because routing is broken.\n"
+			);
+ 			goto ERROR;
+ 		}
 		local_lid = cl_ntoh16(osm_node_get_base_lid(local_node, 0));
 		/* each port belonging to a switch has lmc==0 -> get_base_lid is fine
 		   (local/remote port in this function are always part of a switch)
@@ -1786,7 +1792,7 @@ int dfsssp_remove_deadlocks(dfsssp_context_t * dfsssp_ctx)
 						/* try to add the path to cdg[0] */
 						err =
 						    update_channel_dep_graph
-						    (&(cdg[test_vl]),
+						    (p_mgr, &(cdg[test_vl]),
 						     src_port, slid,
 						     dest_port, dlid);
 						if (err) {
@@ -1886,7 +1892,7 @@ int dfsssp_remove_deadlocks(dfsssp_context_t * dfsssp_ctx)
 
 					/* add path to next cdg / vl */
 					err =
-					    update_channel_dep_graph(&
+					    update_channel_dep_graph(p_mgr, &
 								     (cdg
 								      [test_vl +
 								       1]),
