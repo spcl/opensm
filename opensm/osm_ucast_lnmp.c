@@ -1634,7 +1634,7 @@ ERROR:
         free_path(&path);
     if(switch_endnode_pairs)
         free(switch_endnode_pairs);
-    return -1;
+    return 1;
 }
 
 static int lnmp_perform_routing(void *context)
@@ -1856,7 +1856,8 @@ static int lnmp_perform_routing(void *context)
     /* generate layers */
 
     for(layer_number = 1; layer_number < lnmp_context->number_of_layers; layer_number++) {
-        lnmp_generate_layer(lnmp_context, p_mgr, layer_number, sdp_priority_queue, weights);
+        if(lnmp_generate_layer(lnmp_context, p_mgr, layer_number, sdp_priority_queue, weights))
+	    goto ERROR;
         print_weights(p_mgr, adj_list, weights, adj_list_size);
         print_layer(lnmp_context, p_mgr, layer_number);
     }
