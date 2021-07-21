@@ -282,6 +282,19 @@ static link_t *get_link(lnmp_context_t *lnmp_context, layer_t *layer, vertex_t *
     return link;
 }
 
+static uint16_t get_lid(osm_node_t *p_node)
+{
+    uint8_t port;
+    if (osm_node_get_type(p_node) == IB_NODE_TYPE_CA) {
+	port = 1;
+    } else if (osm_node_get_type(p_node) == IB_NODE_TYPE_SWITCH) {
+	port = 0;
+    } else {
+	return -1;
+    }
+    return cl_ntoh16(osm_node_get_base_lid(p_node, port));
+}
+
 static void print_layer(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_mgr, uint8_t layer_number)
 {
     uint32_t i = 0, j = 0;
@@ -315,7 +328,7 @@ static void print_layer(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_mgr, ui
                     p_port = (osm_port_t *) item;
                     p_node = p_port->p_node;
                     if (osm_node_get_type(p_node) == IB_NODE_TYPE_CA || osm_node_get_type(p_node) == IB_NODE_TYPE_SWITCH) {
-                        base_lid = cl_ntoh16(osm_node_get_base_lid(p_node, 0));
+                        base_lid = get_lid(p_node);
                         if(base_lid != lnmp_context->adj_list[i].lid) {
                             link = get_link(lnmp_context, layer, adj_list, i+1, 0, base_lid);
                             layer_entry = layer->entries[lnmp_context->lid_port_map[adj_list[i+1].lid].layer_index][lnmp_context->lid_port_map[base_lid].layer_index];
@@ -773,8 +786,7 @@ static int lnmp_build_graph(void *context)
 
         adj_list[i].guid =
             cl_ntoh64(osm_node_get_node_guid(sw->p_node));
-        adj_list[i].lid =
-            cl_ntoh16(osm_node_get_base_lid(sw->p_node, 0));
+        adj_list[i].lid = get_lid(sw->p_node);
         adj_list[i].sw = sw;
 
         link = (link_t *) malloc(sizeof(link_t));
@@ -1017,12 +1029,13 @@ static int generate_pairs_list(lnmp_context_t *lnmp_context, uint32_t number_of_
             p_port = (osm_port_t *) item;
             p_node = p_port->p_node;
             if (osm_node_get_type(p_node) == IB_NODE_TYPE_CA || osm_node_get_type(p_node) == IB_NODE_TYPE_SWITCH) {
-                base_lid = cl_ntoh16(osm_node_get_base_lid(p_node, 0));
+		base_lid = get_lid(p_node);
                 if(lid_port_map[base_lid].previous_pairing_iteration != i && base_lid != lnmp_context->adj_list[i].lid) {
                     lid_port_map[base_lid].previous_pairing_iteration = i;
                     key = ((uint64_t) lnmp_context->adj_list[i].lid << 32) + (uint64_t) base_lid;
-                    if (!get_level(sdp_priority_queue, lnmp_context->number_of_layers + 1, key)) //true if key is on level 0
+                    if (!get_level(sdp_priority_queue, lnmp_context->number_of_layers + 1, key)) { //true if key is on level 0
                         switch_endnode_pairs[index--] = key;
+		    }
                 }
             }
         }
@@ -1146,7 +1159,7 @@ static int find_path(layer_t *layer, lnmp_context_t *lnmp_context, uint32_t **we
         if(port->p_physp && osm_link_is_healthy(port->p_physp)) {
             remote_node = osm_node_get_remote_node(port->p_node, port->p_physp->port_num, &remote_port);
             if (remote_node && (osm_node_get_type(remote_node) == IB_NODE_TYPE_SWITCH)) {
-                dst_switch = lid_port_map[cl_ntoh16(osm_node_get_base_lid(remote_node, 0))].switch_index;
+                dst_switch = lid_port_map[get_lid(remote_node)].switch_index;
             }
         }
     }
@@ -1273,7 +1286,7 @@ static int insert_layer_entries(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p
         if(lid > max_lid_ho)
             continue;
         for (i = 0; i < adj_list_size-1; i++, is_ignored_by_port_prof = FALSE) {
-            entry = layer->entries[lid_port_map[adj_list[i+1].lid].layer_index][min_lid_ho];
+            entry = layer->entries[lid_port_map[adj_list[i+1].lid].layer_index][lid_port_map[min_lid_ho].layer_index];
             if(entry.port != OSM_NO_PATH) {
                 sw_src = adj_list[i+1].sw;
                 OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
@@ -1614,6 +1627,7 @@ static int lnmp_generate_layer(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_
                     break;
                 link = link->next;
             }
+
             layer->entries[lnmp_context->lid_port_map[adj_list[path[i]].lid].layer_index][lnmp_context->lid_port_map[(pair & 0xffffffff)].layer_index].port = link->from_port;
             layer->entries[lnmp_context->lid_port_map[adj_list[path[i]].lid].layer_index][lnmp_context->lid_port_map[(pair & 0xffffffff)].layer_index].hops = last - i;
         }
@@ -1673,7 +1687,7 @@ static int lnmp_perform_routing(void *context)
         /* initialize LIDs in buffer to invalid port number */
         memset(sw->new_lft, OSM_NO_PATH, sw->max_lid_ho + 1);
         /* initialize LFT and hop count for bsp0/esp0 of the switch */
-        min_lid_ho = cl_ntoh16(osm_node_get_base_lid(sw->p_node, 0));
+        min_lid_ho = get_lid(sw->p_node);
         lmc = osm_node_get_lmc(sw->p_node, 0);
         for (i = min_lid_ho; i < min_lid_ho + (1 << lmc); i++) {
             /* for each switch the port to the 'self'lid is the management port 0 */
