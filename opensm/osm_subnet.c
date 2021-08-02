@@ -2692,10 +2692,10 @@ void osm_subn_output_conf(FILE *out, IN osm_subn_opt_t * p_opts)
 		p_opts->rues_first_complete ? "TRUE" : "FALSE");
 
 	fprintf(out,
-		"# Probabilty that an edge is included in a given layer.\n"
+		"# Probability that an edge is included in a given layer.\n"
 		"# Default is 80, so 80%\n"
 		"rues_prob %u\n\n",
-		p_opts->rues_prob);
+        p_opts->rues_prob);
 
 	fprintf(out,
 		"# Maximum number of VLs for Nue routing algorithm (default: 1; to enforce\n"

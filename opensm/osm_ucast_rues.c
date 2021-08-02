@@ -170,11 +170,13 @@ static int dijkstra(osm_ucast_mgr_t * p_mgr, cl_heap_t * p_heap,
 
     /* build an 4-ary heap to find the node with minimum distance */
     // Just a min heap
-    if (!cl_is_heap_inited(p_heap))
+    /*if (!cl_is_heap_inited(p_heap))
         ret = cl_heap_init(p_heap, adj_list_size, 4,
                 &apply_index_update, NULL);
     else
-        ret = cl_heap_resize(p_heap, adj_list_size);
+        ret = cl_heap_resize(p_heap, adj_list_size);*/
+    ret = cl_heap_init(p_heap, adj_list_size, 4,
+            &apply_index_update, NULL);
     if (ret != CL_SUCCESS) {
         OSM_LOG(p_mgr->p_log, OSM_LOG_ERROR,
                 "ERR AD09: cannot allocate memory or resize heap\n");
@@ -802,10 +804,12 @@ static int rues_generate_layer(rues_context_t *rues_context, osm_ucast_mgr_t *p_
     vertex_t *adj_list = rues_context->adj_list;
     uint32_t i = 0, undiscov = 0, max_num_undiscov = 0, err = 0;
     link_t *link = NULL;
+    link_t *rev_link = NULL;
     boolean_t connected = FALSE;
 
     osm_port_t *p_port = NULL;
     uint16_t sm_lid = 0;
+    boolean_t state = TRUE;
     cl_heap_t heap;
     cl_heap_construct(&heap);
 
@@ -817,7 +821,28 @@ static int rues_generate_layer(rues_context_t *rues_context, osm_ucast_mgr_t *p_
                     goto ERROR;
                 if(!layer_number && rues_context->first_layer_complete)
                     break;
-                link->layer_mapping[layer_number] = random_number(0, 100) < rues_context->p;
+                // So links are only checked once
+                if(link->from > link->to) {
+                    link = link->next;
+                    continue;
+                }
+                // find reverse link
+                rev_link = adj_list[link->to].links;
+                while(rev_link != NULL) {
+                    if(rev_link->to == link->from && rev_link->from_port == link->to_port) {
+                        break;
+                    }
+                    rev_link = rev_link->next;
+                }
+                if(!rev_link) {
+                    OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
+                            "Couldn't find reverse link for src_sw_lid: %" PRIu16 "  dst_sw_lid = %" PRIu16 "\n", 
+                            adj_list[link->from].lid, adj_list[link->to].lid);
+                    goto ERROR;
+                }
+                state = random_number(0, 100) < rues_context->p;
+                link->layer_mapping[layer_number] = state;
+                rev_link->layer_mapping[layer_number] = state;
                 link = link->next;
             }
         }
@@ -843,15 +868,21 @@ static int rues_generate_layer(rues_context_t *rues_context, osm_ucast_mgr_t *p_
                 }
             }
             connected = max_num_undiscov >= undiscov;
-	    OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
-		    "RUES failed to establish a connected layer, p is %" PRIu8 " and the num undiscovered is %" PRIu32 " go again\n",
-		    rues_context->p, undiscov);
+            if(!connected) {
+                OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
+                    "RUES failed to establish a connected layer, p is %" PRIu8 " and the num undiscovered is %" PRIu32 " go again\n",
+                    rues_context->p, undiscov);
+            }
 	    undiscov = 0;
         }
     } while (rues_context->ensure_connected && !connected);
 
+    cl_heap_destroy(&heap);
+
     return 0;
 ERROR:
+    if (cl_is_heap_inited(&heap))
+        cl_heap_destroy(&heap);
     return -1;
 }
 
