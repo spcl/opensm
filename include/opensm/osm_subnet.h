@@ -392,6 +392,7 @@ typedef struct osm_subn_opt {
 	uint64_t lnmp_max_num_paths;
 	uint8_t lnmp_min_path_len;
 	uint8_t lnmp_max_path_len;
+    boolean_t layers_remove_deadlocks;
 } osm_subn_opt_t;
 /*
 * FIELDS

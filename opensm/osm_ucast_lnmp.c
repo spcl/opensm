@@ -66,6 +66,7 @@ typedef struct lnmp_context {
     uint8_t min_length;
     uint8_t max_length;
     layer_t *layers;
+    boolean_t apply_dfsssp;
 } lnmp_context_t;
 
 typedef struct node {
@@ -368,6 +369,7 @@ static lnmp_context_t *lnmp_context_create(osm_opensm_t *p_osm, osm_routing_engi
         lnmp_context->maximum_number_of_paths = lnmp_context->p_mgr->p_subn->opt.lnmp_max_num_paths;
         lnmp_context->min_length = lnmp_context->p_mgr->p_subn->opt.lnmp_min_path_len;
         lnmp_context->max_length = lnmp_context->p_mgr->p_subn->opt.lnmp_max_path_len;
+        lnmp_context->apply_dfsssp = lnmp_context->p_mgr->p_subn->opt.layers_remove_deadlocks;
         lnmp_context->layers = NULL;
     } else {
         OSM_LOG(p_osm->sm.ucast_mgr.p_log, OSM_LOG_ERROR,
@@ -1899,12 +1901,16 @@ static int lnmp_perform_routing(void *context)
     dfsssp_context_t dfsssp_ctx = { .routing_type = OSM_ROUTING_ENGINE_TYPE_DFSSSP, .p_mgr = p_mgr,
         .adj_list = lnmp_context->adj_list, .adj_list_size = lnmp_context->adj_list_size, .srcdest2vl_table = NULL, .vl_split_count = NULL };
     
-    if(dfsssp_remove_deadlocks(&dfsssp_ctx))
-        goto ERROR;
-    
-    lnmp_context->srcdest2vl_table = dfsssp_ctx.srcdest2vl_table;
-    lnmp_context->vl_split_count = dfsssp_ctx.vl_split_count;
-
+    if(lnmp_context->apply_dfsssp) {
+        if(dfsssp_remove_deadlocks(&dfsssp_ctx)) {
+            goto ERROR;
+        }
+        lnmp_context->srcdest2vl_table = dfsssp_ctx.srcdest2vl_table;
+        lnmp_context->vl_split_count = dfsssp_ctx.vl_split_count;
+    } else {
+        OSM_LOG(p_mgr->p_log, OSM_LOG_INFO,
+        "No deadlock removal specified -> skipping deadlock removal through dfsssp_remove_deadlocks(...)\n");
+    }
 	/* list not needed after the dijkstra steps and deadlock removal */
 	cl_qlist_remove_all(&p_mgr->port_order_list);
     return 0; 

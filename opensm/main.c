@@ -205,6 +205,8 @@ static void show_usage(void)
 	printf("--lnmp_max_num_paths <number paths>\n"
 	       "          Sets the maximum number of paths to be used by LNMP routing for each routing layer.\n"
 	       "          Defaults to 0, which results in a maximum number of 100000 paths per layer.\n\n");
+    printf("--layers_remove_deadlocks\n"
+           "          If set, deadlocks will be removed using dfsssp if possible.\n\n");
 	printf("--lnmp_min_path_len <min length>\n"
 	       "          Sets the minimum length each path that is a added to a layer needs to have.\n"
 	       "          This constraint is not applied to the first layer, which is always routed minimally.\n"
@@ -726,6 +728,7 @@ int main(int argc, char *argv[])
 		{"lnmp_max_num_paths", 1, NULL, 19},
 		{"lnmp_min_path_len", 1, NULL, 20},
 		{"lnmp_max_path_len", 1, NULL, 21},
+        {"layers_remove_deadlocks", 0, NULL, 25},
 		{"dump_files_dir", 1, NULL, 17},
 		{NULL, 0, NULL, 0}	/* Required at the end of the array */
 	};
@@ -1208,6 +1211,9 @@ int main(int argc, char *argv[])
 			opt.lnmp_max_path_len = (uint8_t) strtoul(optarg, NULL, 0);
 			printf(" LNMP maximum path length = %d\n", opt.lnmp_max_path_len);
 			break;
+        case 25:
+            opt.layers_remove_deadlocks = TRUE;
+            break;
 		case 17:
 			SET_STR_OPT(opt.dump_files_dir, optarg);
 			break;
