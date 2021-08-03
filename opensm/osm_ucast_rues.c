@@ -32,6 +32,7 @@ typedef struct rues_context {
     uint8_t p; // probability of an edge being included in a layer as a percentage out of 100
     boolean_t ensure_connected;
     boolean_t first_layer_complete;
+    boolean_t apply_dfsssp;
 } rues_context_t;
 
 static void print_layer(rues_context_t *rues_context, osm_ucast_mgr_t *p_mgr, uint8_t layer_number)
@@ -85,6 +86,7 @@ static rues_context_t *rues_context_create(osm_opensm_t *p_osm, osm_routing_engi
         rues_context->p = rues_context->p_mgr->p_subn->opt.rues_prob;
         rues_context->ensure_connected = rues_context->p_mgr->p_subn->opt.rues_connected;
         rues_context->first_layer_complete = rues_context->p_mgr->p_subn->opt.rues_first_complete;
+        rues_context->apply_dfsssp = rues_context->p_mgr->p_subn->opt.layers_remove_deadlocks;
     } else {
         OSM_LOG(p_osm->sm.ucast_mgr.p_log, OSM_LOG_ERROR,
                 "ERR AD04: cannot allocate memory for rues_context in rues_context_create\n");

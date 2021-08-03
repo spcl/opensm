@@ -213,6 +213,8 @@ static void show_usage(void)
 	       "          Defaults to 0.6\n\n");
 	printf("--rues_connected\n"
 	       "          This option ensures that each randomly created layer is connected.\n\n");
+	printf("--layers_remove_deadlocks\n"
+	       "          If set, deadlocks will be removed using dfsssp if possible.\n\n");
 	printf("--rues_first_complete\n"
 	       "          This option ensures that the first layer is complete.\n\n");
 	printf("--ucast_cache, -A\n"
@@ -728,6 +730,7 @@ int main(int argc, char *argv[])
 		{"dump_files_dir", 1, NULL, 17},
 		{"rues_prob", 1, NULL, 22},
 		{"rues_connected", 0, NULL, 23},
+		{"layers_remove_deadlocks", 0, NULL, 25},
 		{"rues_first_complete", 0, NULL, 24},
 		{NULL, 0, NULL, 0}	/* Required at the end of the array */
 	};
@@ -1214,6 +1217,9 @@ int main(int argc, char *argv[])
 			break;
 		case 24:
 			opt.rues_first_complete = TRUE;
+			break;
+		case 25:
+			opt.layers_remove_deadlocks = TRUE;
 			break;
 		case 'h':
 		case '?':

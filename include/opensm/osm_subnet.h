@@ -388,6 +388,7 @@ typedef struct osm_subn_opt {
 	uint8_t sm_sl;			/* which SL to use for SM/SA communication */
 	uint8_t nue_max_num_vls;	/* maximum #VLs to use in nue */
 	boolean_t nue_include_switches;	/* control how nue treats switches */
+    boolean_t layers_remove_deadlocks;
 	uint8_t rues_prob;
 	boolean_t rues_connected;
 	boolean_t rues_first_complete;	
