@@ -1093,12 +1093,16 @@ static int rues_perform_routing(void *context)
     dfsssp_context_t dfsssp_ctx = { .routing_type = OSM_ROUTING_ENGINE_TYPE_DFSSSP, .p_mgr = p_mgr,
         .adj_list = rues_context->adj_list, .adj_list_size = rues_context->adj_list_size, .srcdest2vl_table = NULL, .vl_split_count = NULL };
     
-    if(dfsssp_remove_deadlocks(&dfsssp_ctx))
-        goto ERROR;
+    if(rues_context->apply_dfsssp) {
+        if(dfsssp_remove_deadlocks(&dfsssp_ctx))
+            goto ERROR;
+        rues_context->srcdest2vl_table = dfsssp_ctx.srcdest2vl_table;
+        rues_context->vl_split_count = dfsssp_ctx.vl_split_count;
+    } else {
+       OSM_LOG(p_mgr->p_log, OSM_LOG_INFO,
+            "No deadlock removal specified -> skipping deadlock removal through dfsssp_remove_deadlocks(...)\n");
+    }
     
-    rues_context->srcdest2vl_table = dfsssp_ctx.srcdest2vl_table;
-    rues_context->vl_split_count = dfsssp_ctx.vl_split_count;
-
 	/* list not needed after the dijkstra steps and deadlock removal */
 	cl_qlist_remove_all(&p_mgr->port_order_list);
     return 0; 
