@@ -926,6 +926,7 @@ static const opt_rec_t opt_tbl[] = {
 	{ "lnmp_min_path_len", OPT_OFFSET(lnmp_min_path_len), opts_parse_uint8, NULL, 1 },
 	{ "lnmp_max_path_len", OPT_OFFSET(lnmp_max_path_len), opts_parse_uint8, NULL, 1 },
     { "layers_remove_deadlocks", OPT_OFFSET(layers_remove_deadlocks), opts_parse_boolean, NULL, 0 },
+    { "dfsssp_best_effort", OPT_OFFSET(dfsssp_best_effort), opts_parse_boolean, NULL, 0 },
 	{ "log_prefix", OPT_OFFSET(log_prefix), opts_parse_charp, NULL, 1 },
 	{ "per_module_logging_file", OPT_OFFSET(per_module_logging_file), opts_parse_charp, NULL, 0 },
 	{ "quasi_ftree_indexing", OPT_OFFSET(quasi_ftree_indexing), opts_parse_boolean, NULL, 1 },
@@ -1688,6 +1689,7 @@ void osm_subn_set_default_opt(IN osm_subn_opt_t * p_opt)
 	p_opt->lnmp_min_path_len = 2;
 	p_opt->lnmp_max_path_len = 3;
     p_opt->layers_remove_deadlocks = TRUE;
+    p_opt->dfsssp_best_effort = FALSE;
 	p_opt->log_prefix = NULL;
 	p_opt->per_module_logging_file = strdup(OSM_DEFAULT_PER_MOD_LOGGING_CONF_FILE);
 	subn_init_qos_options(&p_opt->qos_options, NULL);
@@ -2718,6 +2720,11 @@ void osm_subn_output_conf(FILE *out, IN osm_subn_opt_t * p_opts)
         "# Try to resolve deadlocks using DFSSSP (for algorithms that use layers)\n"
         "layers_remove_deadlocks %s\n\n",
         p_opts->layers_remove_deadlocks ? "TRUE" : "FALSE");
+
+    fprintf(out,
+        "# Only do best effort deadlock removal with DFSSSP\n"
+        "dfsssp_best_effort %s\n\n",
+        p_opts->dfsssp_best_effort ? "TRUE" : "FALSE");
 
 	fprintf(out,
 		"# Port Shifting (use FALSE if unsure)\n"

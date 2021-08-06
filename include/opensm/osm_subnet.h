@@ -393,6 +393,7 @@ typedef struct osm_subn_opt {
 	uint8_t lnmp_min_path_len;
 	uint8_t lnmp_max_path_len;
     boolean_t layers_remove_deadlocks;
+    boolean_t dfsssp_best_effort;
 } osm_subn_opt_t;
 /*
 * FIELDS

@@ -1995,13 +1995,17 @@ int dfsssp_remove_deadlocks(dfsssp_context_t * dfsssp_ctx)
 			paths_per_vl[to] = paths_per_vl[from];
 			paths_per_vl[from] = 0;
 		}
-	} else if (vl_needed > vl_avail) {
+	} else if (!dfsssp_ctx->only_best_effort && vl_needed > vl_avail) {
 		/* routing not possible, a further development would be the LASH-TOR approach (update: LASH-TOR isn't possible, there is a mistake in the theory) */
 		OSM_LOG(p_mgr->p_log, OSM_LOG_ERROR,
 			"ERR AD25: Not enough VLs available (avail=%d, needed=%d); Stopping dfsssp routing!\n",
 			vl_avail, vl_needed);
 		err = 1;
 		goto ERROR;
+	} else if (dfsssp_ctx->only_best_effort && vl_needed > vl_avail) {
+		OSM_LOG(p_mgr->p_log, OSM_LOG_INFO,
+			"Not enough VLs available (avail=%d, needed=%d); Best effort deadlock removal only\n",
+			vl_avail, vl_needed);
 	}
 	/* else { no balancing } */
 
@@ -2565,6 +2569,7 @@ static dfsssp_context_t *dfsssp_context_create(osm_opensm_t * p_osm,
 		dfsssp_ctx->adj_list_size = 0;
 		dfsssp_ctx->srcdest2vl_table = NULL;
 		dfsssp_ctx->vl_split_count = NULL;
+        dfsssp_ctx->only_best_effort = dfsssp_ctx->p_mgr->p_subn->opt.dfsssp_best_effort;
 	} else {
 		OSM_LOG(p_osm->sm.ucast_mgr.p_log, OSM_LOG_ERROR,
 			"ERR AD04: cannot allocate memory for dfsssp_ctx in dfsssp_context_create\n");

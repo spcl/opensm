@@ -207,6 +207,8 @@ static void show_usage(void)
 	       "          Defaults to 0, which results in a maximum number of 100000 paths per layer.\n\n");
     printf("--layers_remove_deadlocks\n"
            "          If set, deadlocks will be removed using dfsssp if possible.\n\n");
+    printf("--dfsssp_best_effort\n"
+           "          If set, dfsssp will attemt to remove deadlocks, but if unsuccessful leave all extra paths in the last VL.\n\n");
 	printf("--lnmp_min_path_len <min length>\n"
 	       "          Sets the minimum length each path that is a added to a layer needs to have.\n"
 	       "          This constraint is not applied to the first layer, which is always routed minimally.\n"
@@ -729,6 +731,7 @@ int main(int argc, char *argv[])
 		{"lnmp_min_path_len", 1, NULL, 20},
 		{"lnmp_max_path_len", 1, NULL, 21},
         {"layers_remove_deadlocks", 0, NULL, 25},
+        {"dfsssp_best_effort", 0, NULL, 26},
 		{"dump_files_dir", 1, NULL, 17},
 		{NULL, 0, NULL, 0}	/* Required at the end of the array */
 	};
@@ -1213,6 +1216,9 @@ int main(int argc, char *argv[])
 			break;
         case 25:
             opt.layers_remove_deadlocks = TRUE;
+            break;
+        case 26:
+            opt.dfsssp_best_effort = FALSE;
             break;
 		case 17:
 			SET_STR_OPT(opt.dump_files_dir, optarg);
