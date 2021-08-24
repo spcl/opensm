@@ -923,6 +923,7 @@ static const opt_rec_t opt_tbl[] = {
 	{ "lash_start_vl", OPT_OFFSET(lash_start_vl), opts_parse_uint8, NULL, 1 },
 	{ "sm_sl", OPT_OFFSET(sm_sl), opts_parse_uint8, NULL, 1 },
 	{ "layers_remove_deadlocks", OPT_OFFSET(layers_remove_deadlocks), opts_parse_boolean, NULL, 0 },
+	{ "dfsssp_best_effort", OPT_OFFSET(dfsssp_best_effort), opts_parse_boolean, NULL, 0 },
 	{ "rues_connected", OPT_OFFSET(rues_connected), opts_parse_boolean, NULL, 0 },
 	{ "rues_first_complete", OPT_OFFSET(rues_first_complete), opts_parse_boolean, NULL, 0 },
 	{ "rues_prob", OPT_OFFSET(rues_prob), opts_parse_uint8, NULL, 1 },
@@ -1689,6 +1690,7 @@ void osm_subn_set_default_opt(IN osm_subn_opt_t * p_opt)
 	p_opt->rues_prob = 80;
 	p_opt->rues_connected = TRUE;
 	p_opt->layers_remove_deadlocks = TRUE;
+	p_opt->dfsssp_best_effort = FALSE;
 	p_opt->rues_first_complete = TRUE;
 	p_opt->nue_max_num_vls = 1;
 	p_opt->nue_include_switches = FALSE;
@@ -2697,6 +2699,11 @@ void osm_subn_output_conf(FILE *out, IN osm_subn_opt_t * p_opts)
 		"# Try to resolve deadlocks using DFSSSP (for algorithms that use layers)\n"
 		"layers_remove_deadlocks %s\n\n",
 		p_opts->layers_remove_deadlocks ? "TRUE" : "FALSE");
+
+	fprintf(out,
+		"# Only do best effort deadlock removal with DFSSSP\n"
+		"dfsssp_best_effort %s\n\n",
+		p_opts->dfsssp_best_effort ? "TRUE" : "FALSE");
 
 	fprintf(out,
 		"# Probability that an edge is included in a given layer.\n"

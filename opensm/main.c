@@ -215,6 +215,8 @@ static void show_usage(void)
 	       "          This option ensures that each randomly created layer is connected.\n\n");
 	printf("--layers_remove_deadlocks\n"
 	       "          If set, deadlocks will be removed using dfsssp if possible.\n\n");
+	printf("--dfsssp_best_effort\n"
+	       "          If set, dfsssp will only attemt to remove deadlocks.\n\n");
 	printf("--rues_first_complete\n"
 	       "          This option ensures that the first layer is complete.\n\n");
 	printf("--ucast_cache, -A\n"
@@ -731,6 +733,7 @@ int main(int argc, char *argv[])
 		{"rues_prob", 1, NULL, 22},
 		{"rues_connected", 0, NULL, 23},
 		{"layers_remove_deadlocks", 0, NULL, 25},
+		{"dfsssp_best_effort", 0, NULL, 26},
 		{"rues_first_complete", 0, NULL, 24},
 		{NULL, 0, NULL, 0}	/* Required at the end of the array */
 	};
@@ -1220,6 +1223,9 @@ int main(int argc, char *argv[])
 			break;
 		case 25:
 			opt.layers_remove_deadlocks = TRUE;
+			break;
+		case 26:
+			opt.dfsssp_best_effort = FALSE;
 			break;
 		case 'h':
 		case '?':

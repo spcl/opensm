@@ -1091,7 +1091,7 @@ static int rues_perform_routing(void *context)
 
     // create temporary dfsssp_context to remove deadlocks
     dfsssp_context_t dfsssp_ctx = { .routing_type = OSM_ROUTING_ENGINE_TYPE_DFSSSP, .p_mgr = p_mgr,
-        .adj_list = rues_context->adj_list, .adj_list_size = rues_context->adj_list_size, .srcdest2vl_table = NULL, .vl_split_count = NULL };
+        .adj_list = rues_context->adj_list, .adj_list_size = rues_context->adj_list_size, .srcdest2vl_table = NULL, .vl_split_count = NULL, .only_best_effort = p_mgr->p_subn->opt.dfsssp_best_effort };
     
     if(rues_context->apply_dfsssp) {
         if(dfsssp_remove_deadlocks(&dfsssp_ctx))
@@ -1170,7 +1170,7 @@ static ib_api_status_t rues_do_mcast_routing(void *context, osm_mgrp_box_t *mbox
     // create temporary dfsssp_context to call dfsssp's mcast routing
     dfsssp_context_t dfsssp_ctx = { .routing_type = OSM_ROUTING_ENGINE_TYPE_DFSSSP, .p_mgr = rues_context->p_mgr,
         .adj_list = rues_context->adj_list, .adj_list_size = rues_context->adj_list_size, 
-        .srcdest2vl_table = rues_context->srcdest2vl_table, .vl_split_count = rues_context->vl_split_count };
+        .srcdest2vl_table = rues_context->srcdest2vl_table, .vl_split_count = rues_context->vl_split_count, .only_best_effort = rues_context->p_mgr->p_subn->opt.dfsssp_best_effort };
 
     return dfsssp_do_mcast_routing(&dfsssp_ctx, mbox);
 }

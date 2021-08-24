@@ -112,6 +112,7 @@ typedef struct dfsssp_context {
 	uint32_t adj_list_size;
 	vltable_t *srcdest2vl_table;
 	uint8_t *vl_split_count;
+    boolean_t only_best_effort;
 } dfsssp_context_t;
 
 /**************** set initial values for structs **********************
