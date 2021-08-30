@@ -1081,7 +1081,7 @@ static int rues_perform_routing(void *context)
 
     /* generate layers */
 
-    for(layer_number = 1; layer_number < rues_context->number_of_layers; layer_number++) {
+    for(layer_number = 0; layer_number < rues_context->number_of_layers; layer_number++) {
         rues_generate_layer(rues_context, p_mgr, layer_number);
         print_layer(rues_context, p_mgr, layer_number);
     }
