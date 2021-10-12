@@ -1676,6 +1676,9 @@ int dfsssp_remove_deadlocks(dfsssp_context_t * dfsssp_ctx)
 		"Assign each src/dest pair a Virtual Lanes, to remove deadlocks in the routing\n");
 
 	vl_avail = get_avail_vl_in_subn(p_mgr);
+        if(dfsssp_ctx->max_vls > 0 && vl_avail > dfsssp_ctx->max_vls) {
+            vl_avail = dfsssp_ctx->max_vls;
+        }
 	OSM_LOG(p_mgr->p_log, OSM_LOG_INFO,
 		"Virtual Lanes available: %" PRIu8 "\n", vl_avail);
 
@@ -2569,6 +2572,7 @@ static dfsssp_context_t *dfsssp_context_create(osm_opensm_t * p_osm,
 		dfsssp_ctx->adj_list_size = 0;
 		dfsssp_ctx->srcdest2vl_table = NULL;
 		dfsssp_ctx->vl_split_count = NULL;
+                dfsssp_ctx->max_vls = dfsssp_ctx->p_mgr->p_subn->opt.dfsssp_max_vls;
         dfsssp_ctx->only_best_effort = dfsssp_ctx->p_mgr->p_subn->opt.dfsssp_best_effort;
 	} else {
 		OSM_LOG(p_osm->sm.ucast_mgr.p_log, OSM_LOG_ERROR,

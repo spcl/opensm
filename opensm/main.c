@@ -205,6 +205,9 @@ static void show_usage(void)
 	printf("--lnmp_max_num_paths <number paths>\n"
 	       "          Sets the maximum number of paths to be used by LNMP routing for each routing layer.\n"
 	       "          Defaults to 0, which results in a maximum number of 100000 paths per layer.\n\n");
+	printf("--dfsssp_max_vls <number vls>\n"
+	       "          Sets the maximum number of vls to be used by DFSSSP deadlock removal.\n"
+	       "          Defaults to 0, which results in a maximum number of vls.\n\n");
     printf("--layers_remove_deadlocks\n"
            "          If set, deadlocks will be removed using dfsssp if possible.\n\n");
     printf("--dfsssp_best_effort\n"
@@ -730,6 +733,7 @@ int main(int argc, char *argv[])
 		{"lnmp_max_num_paths", 1, NULL, 19},
 		{"lnmp_min_path_len", 1, NULL, 20},
 		{"lnmp_max_path_len", 1, NULL, 21},
+		{"dfsssp_max_vls", 1, NULL, 27},
         {"layers_remove_deadlocks", 0, NULL, 25},
         {"dfsssp_best_effort", 0, NULL, 26},
 		{"dump_files_dir", 1, NULL, 17},
@@ -1213,6 +1217,10 @@ int main(int argc, char *argv[])
 		case 21:
 			opt.lnmp_max_path_len = (uint8_t) strtoul(optarg, NULL, 0);
 			printf(" LNMP maximum path length = %d\n", opt.lnmp_max_path_len);
+			break;
+		case 27:
+			opt.dfsssp_max_vls = (uint8_t) strtoul(optarg, NULL, 0);
+			printf(" DFSSSP max num vls = %d\n", opt.dfsssp_max_vls);
 			break;
         case 25:
             opt.layers_remove_deadlocks = TRUE;

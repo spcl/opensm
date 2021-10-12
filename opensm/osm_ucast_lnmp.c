@@ -1900,7 +1900,7 @@ static int lnmp_perform_routing(void *context)
     // create temporary dfsssp_context to remove deadlocks
     dfsssp_context_t dfsssp_ctx = { .routing_type = OSM_ROUTING_ENGINE_TYPE_DFSSSP, .p_mgr = p_mgr,
         .adj_list = lnmp_context->adj_list, .adj_list_size = lnmp_context->adj_list_size, .srcdest2vl_table = NULL, 
-        .vl_split_count = NULL, .only_best_effort = p_mgr->p_subn->opt.dfsssp_best_effort};
+        .vl_split_count = NULL, .max_vls = p_mgr->p_subn->opt.dfsssp_max_vls, .only_best_effort = p_mgr->p_subn->opt.dfsssp_best_effort};
     
     if(lnmp_context->apply_dfsssp) {
         if(dfsssp_remove_deadlocks(&dfsssp_ctx)) {
@@ -1992,7 +1992,7 @@ static ib_api_status_t lnmp_do_mcast_routing(void *context, osm_mgrp_box_t *mbox
     // create temporary dfsssp_context to call dfsssp's mcast routing
     dfsssp_context_t dfsssp_ctx = { .routing_type = OSM_ROUTING_ENGINE_TYPE_DFSSSP, .p_mgr = lnmp_context->p_mgr,
         .adj_list = lnmp_context->adj_list, .adj_list_size = lnmp_context->adj_list_size, 
-        .srcdest2vl_table = lnmp_context->srcdest2vl_table, .vl_split_count = lnmp_context->vl_split_count, .only_best_effort = lnmp_context->p_mgr->p_subn->opt.dfsssp_best_effort};
+        .srcdest2vl_table = lnmp_context->srcdest2vl_table, .vl_split_count = lnmp_context->vl_split_count, .max_vls = lnmp_context->p_mgr->p_subn->opt.dfsssp_max_vls, .only_best_effort = lnmp_context->p_mgr->p_subn->opt.dfsssp_best_effort};
 
     return dfsssp_do_mcast_routing(&dfsssp_ctx, mbox);
 }
