@@ -122,7 +122,7 @@ static inline void vltable_insert(vltable_t * vltable, ib_net16_t slid,
 }
 
 /* change a number of lanes from lane xy to lane yz */
-static void vltable_change_vl(vltable_t * vltable, uint8_t from, uint8_t to,
+static int vltable_change_vl(vltable_t * vltable, uint8_t from, uint8_t to,
 			      uint64_t count)
 {
 	uint64_t set = 0, stop = 0;
@@ -146,8 +146,9 @@ static void vltable_change_vl(vltable_t * vltable, uint8_t from, uint8_t to,
 			}
 		}
 		if (stop)
-			break;
+			return 0;
 	}
+	return 1;
 }
 
 static void vltable_print(osm_ucast_mgr_t * p_mgr, vltable_t * vltable)
@@ -1655,8 +1656,8 @@ int dfsssp_remove_deadlocks(dfsssp_context_t * dfsssp_ctx)
 	cl_list_item_t *item1 = NULL, *item2 = NULL;
 	osm_port_t *src_port = NULL, *dest_port = NULL;
 
-	uint32_t i = 0, j = 0, err = 0;
-	uint8_t vl = 0, test_vl = 0, vl_avail = 0, vl_needed = 1;
+	uint32_t i = 0, j = 0, err = 0, bound = 0;
+	uint8_t vl = 0, test_vl = 0, vl_avail = 0, vl_needed = 1, vl_buffer = 0;
 	double most_avg_paths = 0.0;
 	cdg_node_t **cdg = NULL, *start_here = NULL, *cycle = NULL;
 	cdg_link_t *weakest_link = NULL;
@@ -1679,25 +1680,26 @@ int dfsssp_remove_deadlocks(dfsssp_context_t * dfsssp_ctx)
         if(dfsssp_ctx->max_vls > 0 && vl_avail > dfsssp_ctx->max_vls) {
             vl_avail = dfsssp_ctx->max_vls;
         }
+	vl_buffer = vl_avail+1;
 	OSM_LOG(p_mgr->p_log, OSM_LOG_INFO,
 		"Virtual Lanes available: %" PRIu8 "\n", vl_avail);
 
-	paths_per_vl = (uint64_t *) malloc(vl_avail * sizeof(uint64_t));
+	paths_per_vl = (uint64_t *) malloc(vl_buffer * sizeof(uint64_t));
 	if (!paths_per_vl) {
 		OSM_LOG(p_mgr->p_log, OSM_LOG_ERROR,
 			"ERR AD22: cannot allocate memory for paths_per_vl\n");
 		return 1;
 	}
-	memset(paths_per_vl, 0, vl_avail * sizeof(uint64_t));
+	memset(paths_per_vl, 0, vl_buffer * sizeof(uint64_t));
 
-	cdg = (cdg_node_t **) malloc(vl_avail * sizeof(cdg_node_t *));
+	cdg = (cdg_node_t **) malloc(vl_buffer * sizeof(cdg_node_t *));
 	if (!cdg) {
 		OSM_LOG(p_mgr->p_log, OSM_LOG_ERROR,
 			"ERR AD23: cannot allocate memory for cdg\n");
 		free(paths_per_vl);
 		return 1;
 	}
-	for (i = 0; i < vl_avail; i++)
+	for (i = 0; i < vl_buffer; i++)
 		cdg[i] = NULL;
 
 	count = 0;
@@ -1817,7 +1819,7 @@ int dfsssp_remove_deadlocks(dfsssp_context_t * dfsssp_ctx)
 	dfsssp_ctx->srcdest2vl_table = srcdest2vl_table;
 
 	/* test all cdg for cycles and break the cycles by moving paths on the weakest link to the next cdg */
-	for (test_vl = 0; test_vl < vl_avail - 1; test_vl++) {
+	for (test_vl = 0; test_vl < vl_buffer - 1; test_vl++) {
 		start_here = cdg[test_vl];
 		while (start_here) {
 			cycle =
@@ -1923,21 +1925,21 @@ int dfsssp_remove_deadlocks(dfsssp_context_t * dfsssp_ctx)
 	   if there is one, than vl_needed > vl_avail
 	 */
 	start_here = cdg[vl_avail - 1];
-	if (start_here) {
+	/*if (start_here) {
 		cycle =
 		    search_cycle_in_channel_dep_graph(cdg[vl_avail - 1],
 						      start_here);
 		if (cycle) {
 			vl_needed = vl_avail + 1;
 		}
-	}
+	}*/
 
 	OSM_LOG(p_mgr->p_log, OSM_LOG_INFO,
 		"Virtual Lanes needed: %" PRIu8 "\n", vl_needed);
 	if (OSM_LOG_IS_ACTIVE_V2(p_mgr->p_log, OSM_LOG_INFO)) {
 		OSM_LOG(p_mgr->p_log, OSM_LOG_INFO,
 			"Paths per VL (before balancing):\n");
-		for (i = 0; i < vl_avail; i++)
+		for (i = 0; i < vl_buffer; i++)
 			OSM_LOG(p_mgr->p_log, OSM_LOG_INFO,
 				"   %" PRIu32 ". lane: %" PRIu64 "\n", i,
 				paths_per_vl[i]);
@@ -1950,7 +1952,7 @@ int dfsssp_remove_deadlocks(dfsssp_context_t * dfsssp_ctx)
 	   sl/vl != 0 might be assigned to loopback packets (i.e. slid/dlid on the
 	   same port for lmc>0), but thats no problem, see IBAS 10.2.2.3
 	 */
-	split_count = (uint8_t *) calloc(vl_avail, sizeof(uint8_t));
+	split_count = (uint8_t *) calloc(vl_buffer, sizeof(uint8_t));
 	if (!split_count) {
 		OSM_LOG(p_mgr->p_log, OSM_LOG_ERROR,
 			"ERR AD24: cannot allocate memory for split_count, skip balancing\n");
@@ -1958,7 +1960,7 @@ int dfsssp_remove_deadlocks(dfsssp_context_t * dfsssp_ctx)
 		goto ERROR;
 	}
 	/* initial state: paths for VLs won't be separated */
-	for (i = 0; i < ((vl_needed < vl_avail) ? vl_needed : vl_avail); i++)
+	for (i = 0; i < ((vl_needed < vl_avail) ? vl_needed : vl_buffer); i++)
 		split_count[i] = 1;
 	dfsssp_ctx->vl_split_count = split_count;
 	/* balancing is necessary if we have empty VLs */
@@ -2007,8 +2009,17 @@ int dfsssp_remove_deadlocks(dfsssp_context_t * dfsssp_ctx)
 		goto ERROR;
 	} else if (dfsssp_ctx->only_best_effort && vl_needed > vl_avail) {
 		OSM_LOG(p_mgr->p_log, OSM_LOG_INFO,
-			"Not enough VLs available (avail=%d, needed=%d); Best effort deadlock removal only\n",
+			"Not enough VLs available (avail=%d, needed=%d); Best effort deadlock removal only, spreading additional ones across remaining layers\n",
 			vl_avail, vl_needed);
+		from = vl_buffer - 1;
+		bound = paths_per_vl[from];
+		for(i = 0; i <= bound; i++) {
+			to = rand() % vl_avail;	
+			if(vltable_change_vl(srcdest2vl_table, from, to, 1))
+				break;
+			paths_per_vl[from]--;
+			paths_per_vl[to]++;
+		}
 	}
 	/* else { no balancing } */
 
@@ -2022,7 +2033,7 @@ int dfsssp_remove_deadlocks(dfsssp_context_t * dfsssp_ctx)
 			"Approx. #paths per VL (after balancing):\n");
 		j = 0;
 		count = 1; /* to prevent div. by 0 */
-		for (i = 0; i < vl_avail; i++) {
+		for (i = 0; i < vl_buffer; i++) {
 			if (split_count[i] > 0) {
 				j = i;
 				count = split_count[i];
