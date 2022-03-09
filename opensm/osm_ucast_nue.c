@@ -3433,6 +3433,10 @@ static int nue_discover_network(void *context)
 
 	/* acquire basic information about the network */
 	nue_ctx->max_vl = get_max_num_vls(mgr);
+	OSM_LOG(mgr->p_log, OSM_LOG_INFO,
+		"max_vls configured: %" PRIu8
+		"\n",
+		nue_ctx->max_vl);
 	if (nue_ctx->max_vl != 1 && !(mgr->p_subn->opt.qos)) {
 		OSM_LOG(mgr->p_log, OSM_LOG_INFO,
 			"WRN NUE48: Nue routing with nue_max_num_vls == %" PRIu8

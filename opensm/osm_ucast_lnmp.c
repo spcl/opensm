@@ -1597,6 +1597,7 @@ static int lnmp_generate_layer(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_
     if(generate_pairs_list(lnmp_context, switch_endnode_pairs_size, sdp_priority_queue, switch_endnode_pairs))
         goto ERROR;
     
+    uint64_t path_length_distribution[6] = {0,0,0,0,0,0};
 
     while(current_switch_pair < switch_endnode_pairs_size && added_paths < lnmp_context->maximum_number_of_paths) {
         pair = switch_endnode_pairs[current_switch_pair++]; 
@@ -1613,6 +1614,8 @@ static int lnmp_generate_layer(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_
                 break;
         }
         last = i;
+
+	path_length_distribution[last]++;	
 
         for(i = 0; i <= last+1 - min_path_length; i++) {
         // decrease priority of all pairs that have a new non-minimal path, including the original
@@ -1638,6 +1641,26 @@ static int lnmp_generate_layer(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_
         if(path)
             free_path(&path);
     }
+    if(added_paths >= lnmp_context->maximum_number_of_paths) {
+        OSM_LOG(p_mgr->p_log, OSM_LOG_INFO,
+        "   Layer = %" PRIu16 " hit the maximum number of possible paths\n",
+        layer_number);
+    }
+    OSM_LOG(p_mgr->p_log, OSM_LOG_INFO,
+    "   Layer = %" PRIu16 " found %" PRIu16 " paths of length 1\n",
+    layer_number, path_length_distribution[1]);
+    OSM_LOG(p_mgr->p_log, OSM_LOG_INFO,
+    "   Layer = %" PRIu16 " found %" PRIu16 " paths of length 2\n",
+    layer_number, path_length_distribution[2]);
+    OSM_LOG(p_mgr->p_log, OSM_LOG_INFO,
+    "   Layer = %" PRIu16 " found %" PRIu16 " paths of length 3\n",
+    layer_number, path_length_distribution[3]);
+    OSM_LOG(p_mgr->p_log, OSM_LOG_INFO,
+    "   Layer = %" PRIu16 " found %" PRIu16 " paths of length 4\n",
+    layer_number, path_length_distribution[4]);
+    OSM_LOG(p_mgr->p_log, OSM_LOG_INFO,
+    "   Layer = %" PRIu16 " found %" PRIu16 " paths of length 5\n",
+    layer_number, path_length_distribution[5]);
 
     free(switch_endnode_pairs);
 

@@ -2527,19 +2527,26 @@ static uint8_t get_dfsssp_sl(void *context, uint8_t hint_for_default_sl,
 		srcdest2vl_table = (vltable_t *) (dfsssp_ctx->srcdest2vl_table);
 		vl_split_count = (uint8_t *) (dfsssp_ctx->vl_split_count);
 	}
-	else
+	else {
 		return hint_for_default_sl;
+	}
 
 	src_port = osm_get_port_by_lid(p_mgr->p_subn, slid);
-	if (!src_port)
+	if (!src_port) {
+		OSM_LOG(p_mgr->sm->p_log, OSM_LOG_INFO, "SL requested --- source: 0x%" PRIx16 "  destination: 0x%" PRIx16 "  returned default sl (no src):  %" PRIu8 " \n", cl_ntoh16(slid), cl_ntoh16(dlid), hint_for_default_sl);
 		return hint_for_default_sl;
+	}
 
 	dest_port = osm_get_port_by_lid(p_mgr->p_subn, dlid);
-	if (!dest_port)
+	if (!dest_port) {
+		OSM_LOG(p_mgr->sm->p_log, OSM_LOG_INFO, "SL requested --- source: 0x%" PRIx16 "  destination: 0x%" PRIx16 "  returned default sl (no dst):  %" PRIu8 " \n", cl_ntoh16(slid), cl_ntoh16(dlid), hint_for_default_sl);
 		return hint_for_default_sl;
+	}	
 
-	if (!srcdest2vl_table)
+	if (!srcdest2vl_table) {
+		OSM_LOG(p_mgr->sm->p_log, OSM_LOG_INFO, "SL requested --- source: 0x%" PRIx16 "  destination: 0x%" PRIx16 "  returned default sl (no sd2cl table):  %" PRIu8 " \n", cl_ntoh16(slid), cl_ntoh16(dlid), hint_for_default_sl);
 		return hint_for_default_sl;
+	}
 
 	res = vltable_get_vl(srcdest2vl_table, slid, dlid);
 
@@ -2548,12 +2555,37 @@ static uint8_t get_dfsssp_sl(void *context, uint8_t hint_for_default_sl,
 	   the number of VLs to use for certain traffic
 	 */
 	if (res > -1) {
-		if (vl_split_count[res] > 1)
-			return (uint8_t) (res + rand()%(vl_split_count[res]));
-		else
+		if (vl_split_count[res] > 2) {
+			//uint8_t temp = (uint8_t) (res + rand()%(vl_split_count[res]));
+			uint8_t temp = (uint8_t) (4 + rand()%4);
+			//uint8_t temp = res;
+			//while(temp == 4 || temp == 5) {
+			//	temp = (uint8_t) (res + rand()%(vl_split_count[res]));
+			//}
+			//temp = 6;
+			//uint8_t temp = (uint8_t) (res + 4 + rand()%2);
+			//uint8_t temp = (uint8_t) (res + 4);
+			OSM_LOG(p_mgr->sm->p_log, OSM_LOG_INFO, "SL requested --- source: %" PRIu16 "  destination: %" PRIu16 "  res before: %" PRIx32 " res after:  %" PRIu8 " had %" PRIu8 " choices \n", cl_ntoh16(slid), cl_ntoh16(dlid), res, temp, vl_split_count[res]);
+			return temp;
+		} else if (vl_split_count[res] == 2) {
+			//uint8_t temp = (uint8_t) (res + rand()%(vl_split_count[res]));
+			//while(res != 4 && (temp == 4 || temp == 5)) {
+			//	temp = (uint8_t) (res + rand()%(vl_split_count[res]));
+			//}
+			//temp = 7;
+			uint8_t temp = (uint8_t) (4 + rand()%4);
+			//uint8_t temp = (uint8_t) (res);
+			OSM_LOG(p_mgr->sm->p_log, OSM_LOG_INFO, "SL requested --- source: %" PRIu16 "  destination: %" PRIu16 "  res before: %" PRIx32 " res after:  %" PRIu8 " had %" PRIu8 " choices \n", cl_ntoh16(slid), cl_ntoh16(dlid), res, temp, vl_split_count[res]);
+			return temp;
+		}
+		else {
+			OSM_LOG(p_mgr->sm->p_log, OSM_LOG_INFO, "SL requested --- source: 0x%" PRIx16 "  destination: 0x%" PRIx16 "  res no choice:  %" PRIx32 " \n", cl_ntoh16(slid), cl_ntoh16(dlid), res);
 			return (uint8_t) res;
-	} else
+		}
+	} else {
+		OSM_LOG(p_mgr->sm->p_log, OSM_LOG_INFO, "SL requested --- source: 0x%" PRIx16 "  destination: 0x%" PRIx16 "  returned default sl (res -1):  %" PRIu8 " \n", cl_ntoh16(slid), cl_ntoh16(dlid), hint_for_default_sl);
 		return hint_for_default_sl;
+	}
 }
 
 static dfsssp_context_t *dfsssp_context_create(osm_opensm_t * p_osm,
