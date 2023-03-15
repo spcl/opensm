@@ -861,7 +861,10 @@ static int lnmp_build_graph(void *context)
             link->from = i;
             link->from_port = port;
             link->to_port = remote_port;
-            link->weight = total_num_hca * total_num_hca;	/* initialize with P^2 to force shortest paths */
+	    /* initialize with P^2 to force shortest paths
+	     * we futher multiple a factor 10 as this makes the statement true for shortest paths of length up to 10
+	     */
+            link->weight = 10*total_num_hca * total_num_hca;	
         }
 
         adj_list[i].links = head->next;
