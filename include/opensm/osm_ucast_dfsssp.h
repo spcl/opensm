@@ -208,4 +208,5 @@ int dfsssp_remove_deadlocks(dfsssp_context_t * dfsssp_ctx);
 
 ib_api_status_t dfsssp_do_mcast_routing(void * context,
 					       osm_mgrp_box_t * mbox);
+uint8_t get_avail_vl_in_subn(osm_ucast_mgr_t * p_mgr);
 #endif

@@ -1603,7 +1603,7 @@ static void update_weights(osm_ucast_mgr_t * p_mgr, vertex_t * adj_list,
 /* get the largest number of virtual lanes which is supported by all switches
    in the subnet
 */
-static uint8_t get_avail_vl_in_subn(osm_ucast_mgr_t * p_mgr)
+uint8_t get_avail_vl_in_subn(osm_ucast_mgr_t * p_mgr)
 {
 	uint32_t i = 0;
 	uint8_t vls_avail = 0xFF, port_vls_avail = 0;

@@ -56,6 +56,7 @@ typedef struct lnmp_context {
     osm_routing_engine_type_t routing_type;
     osm_ucast_mgr_t *p_mgr;
     vertex_t *adj_list;
+    uint8_t *switch_colors;
     uint32_t adj_list_size;
     vltable_t *srcdest2vl_table;
     uint8_t *vl_split_count;
@@ -362,6 +363,7 @@ static lnmp_context_t *lnmp_context_create(osm_opensm_t *p_osm, osm_routing_engi
         lnmp_context->adj_list_size = 0;
         lnmp_context->srcdest2vl_table = NULL;
         lnmp_context->vl_split_count = NULL;
+	lnmp_context->switch_colors = NULL;
 
         lnmp_context->number_of_layers = 1;
         lnmp_context->number_of_endnodes_and_switches = 0;
@@ -426,6 +428,10 @@ static void lnmp_context_destroy(void *context)
             free_layer_entries(layer->entries, lnmp_context->adj_list_size -1);
         }
         free((layer_t *) (lnmp_context->layers));
+    }
+    if (lnmp_context->switch_colors) {
+	free((uint8_t *) (lnmp_context->switch_colors));
+	lnmp_context->switch_colors = NULL;
     }
     lnmp_context->layers = NULL;
     lnmp_context->adj_list_size = 0;
@@ -656,6 +662,7 @@ static int lnmp_build_graph(void *context)
     // counts each individual lid
     uint64_t total_num_hca = 0;
     vertex_t *adj_list = NULL;
+    uint8_t *switch_colors = NULL;
     layer_t *layers = NULL;
     osm_physp_t *p_physp = NULL;
     link_t *link = NULL, *head = NULL;
@@ -692,11 +699,26 @@ static int lnmp_build_graph(void *context)
                 "ERR AD02: cannot allocate memory for adj_list\n");
         goto ERROR;
     }
+
     for (i = 0; i < adj_list_size; i++)
         set_default_vertex(&adj_list[i]);
 
     lnmp_context->adj_list = adj_list;
     lnmp_context->adj_list_size = adj_list_size;
+
+    switch_colors = (uint8_t *) malloc(adj_list_size * sizeof(uint8_t));
+    if (!switch_colors) {
+        OSM_LOG(p_mgr->p_log, OSM_LOG_ERROR,
+                "ERR AD02: cannot allocate memory for switch_colors\n");
+        goto ERROR;
+    }
+    
+    for (i = 0; i < adj_list_size; i++) {
+	switch_colors[i] = 20;	
+    }
+
+    lnmp_context->switch_colors = switch_colors;
+
     max_lid = p_mgr->p_subn->max_ucast_lid_ho;
 
     lid_port_map = (port_index_t *) malloc((max_lid+1) * sizeof(port_index_t));
@@ -750,6 +772,7 @@ static int lnmp_build_graph(void *context)
     lnmp_context->number_of_layers = max_lmc;
 
     /* allocate the layers array */
+    OSM_LOG(p_mgr->p_log, OSM_LOG_INFO, "Allocating layers array\n");
     layers = (layer_t *) malloc(lnmp_context->number_of_layers * sizeof(layer_t));
     if(!layers) {
         OSM_LOG(p_mgr->p_log, OSM_LOG_ERROR,
@@ -759,6 +782,7 @@ static int lnmp_build_graph(void *context)
 
 
     /* allocate the different layers */
+    OSM_LOG(p_mgr->p_log, OSM_LOG_INFO, "Allocating each layer\n");
     for(layer_number = 0; layer_number < lnmp_context->number_of_layers; layer_number++) {
         entries = (layer_entry_t **) malloc((adj_list_size-1) * sizeof(layer_entry_t *));
         if (!entries) {
@@ -777,6 +801,8 @@ static int lnmp_build_graph(void *context)
         entries = NULL;
     }
     lnmp_context->layers = layers;
+
+    OSM_LOG(p_mgr->p_log, OSM_LOG_INFO, "Establish Adj List\n");
 
     i = 1;			/* fill adj_list -> start with index 1 because the 0. element is reserved */
     for (item = cl_qmap_head(sw_tbl); item != cl_qmap_end(sw_tbl);
@@ -883,7 +909,37 @@ static int lnmp_build_graph(void *context)
             link = link->next;
         }
     }
+    /* assign colors to every switch using the adj_list */
+    uint8_t colors[13]; // only 0 -> 12 as we will shift this by 2 with the SL mapping (SL 0, 1 and 15 reserved)
 
+    OSM_LOG(p_mgr->p_log, OSM_LOG_INFO, "Assigning colors \n");
+    for(i = 1; i < adj_list_size; i++) {
+    	for(j = 0; j < 13; j++) {
+	    // value of 1 indicates available
+	    colors[j] = 1;
+	}
+        link = adj_list[i].links;
+        while (link) {
+	    if(switch_colors[link->to] < 16) {
+		colors[switch_colors[link->to]] = 0;
+	    }
+            link = link->next;
+        }
+    	for(j = 0; j < 13; j++) {
+	    if(colors[j]) {
+		switch_colors[i] = j;
+		break;
+	    }
+	}
+	if (switch_colors[i] > 15) {
+                OSM_LOG(p_mgr->p_log, OSM_LOG_ERROR,
+                        "ERR AD99: cannot assign a unique color to a sw\n");
+                goto ERROR;
+	}
+    }
+
+
+    OSM_LOG(p_mgr->p_log, OSM_LOG_INFO, "Dijkstra dry run \n");
     /* do one dry run to determine connectivity issues */
     sm_lid = p_mgr->p_subn->master_sm_base_lid;
     p_port = osm_get_port_by_lid(p_mgr->p_subn, sm_lid);
@@ -936,6 +992,9 @@ ERROR:
         if(lid_port_map) {
             free(lid_port_map);
         }
+    }
+    if(switch_colors) {
+	free(switch_colors);
     }
     if(!lnmp_context->layers) {
         if(layers) {
@@ -1406,18 +1465,18 @@ static int update_lft(osm_ucast_mgr_t * p_mgr, vertex_t * adj_list,
 		 */
 
 		/* set port in LFT */
-        if (p_sw->new_lft[lid] != OSM_NO_PATH) {
-            if (p_sw->new_lft[lid] != port) {
-                OSM_LOG(p_mgr->p_log, OSM_LOG_ERROR,
-                    "ERROR: dijkstra result and fixed paths disagree in next hop," 
-                    "should be impossible by design. Cannot set hops for LID %" PRIu16
-                    " at switch 0x%" PRIx64 "\n", lid,
-                    cl_ntoh64(osm_node_get_node_guid
-                          (p_sw->p_node)));
-                return 1;
-            }
-            continue;
-        }
+		if (p_sw->new_lft[lid] != OSM_NO_PATH) {
+		    if (p_sw->new_lft[lid] != port) {
+			OSM_LOG(p_mgr->p_log, OSM_LOG_ERROR,
+			    "ERROR: dijkstra result and fixed paths disagree in next hop," 
+			    "should be impossible by design. Cannot set hops for LID %" PRIu16
+			    " at switch 0x%" PRIx64 "\n", lid,
+			    cl_ntoh64(osm_node_get_node_guid
+				  (p_sw->p_node)));
+			return 1;
+		    }
+		    continue;
+		}
 		p_sw->new_lft[lid] = port;
 		if (!is_ignored_by_port_prof) {
 			/* update the number of path routing thru this port */
@@ -1466,7 +1525,7 @@ static void update_weights(osm_ucast_mgr_t * p_mgr, vertex_t * adj_list,
 	OSM_LOG_EXIT(p_mgr->p_log);
 }
 
-static int fill_remaining_lft_entries(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_mgr)
+static int fill_remaining_lft_entries(lnmp_context_t *lnmp_context, osm_ucast_mgr_t *p_mgr, boolean_t base_layer)
 {
 	vertex_t *adj_list = (vertex_t *) lnmp_context->adj_list;
 	uint32_t adj_list_size = lnmp_context->adj_list_size;
@@ -1515,6 +1574,10 @@ static int fill_remaining_lft_entries(lnmp_context_t *lnmp_context, osm_ucast_mg
 
 		osm_port_get_lid_range_ho(port, &min_lid_ho,
 					  &max_lid_ho);
+		// We might only want to fill the base layer
+		if(base_layer) {
+			max_lid_ho = min_lid_ho;
+		}
 		for (lid = min_lid_ho; lid <= max_lid_ho; lid++) {
 			/* do dijkstra from this Hca/LID/SP0 to each switch */
 			err =
@@ -1904,6 +1967,13 @@ static int lnmp_perform_routing(void *context)
         print_layer(lnmp_context, p_mgr, layer_number);
     }
 
+    /* We first fill the shortest paths of the first layer (which consists only of shortest paths
+     * This allows us to load balance the shortest paths individually without having the weights 
+     * 		from the non-shortest paths affect them */
+
+    OSM_LOG(p_mgr->p_log, OSM_LOG_INFO, "Fill first layer \n");
+    fill_remaining_lft_entries(lnmp_context, p_mgr, true);
+
     increase_link_weights(lnmp_context, weights);
 
     /* dealloc weights matrix, no longer needed */
@@ -1920,8 +1990,9 @@ static int lnmp_perform_routing(void *context)
     free(sdp_priority_queue);
     sdp_priority_queue = NULL;
 
-    // fill remaining entries using dijkstra
-    fill_remaining_lft_entries(lnmp_context, p_mgr);
+    // And now, after adding the weights we fill the remaining entries (also) using dijkstra
+    OSM_LOG(p_mgr->p_log, OSM_LOG_INFO, "Fill remaining layers layer \n");
+    fill_remaining_lft_entries(lnmp_context, p_mgr, false);
 
     // create temporary dfsssp_context to remove deadlocks
     dfsssp_context_t dfsssp_ctx = { .routing_type = OSM_ROUTING_ENGINE_TYPE_DFSSSP, .p_mgr = p_mgr,
@@ -1929,6 +2000,8 @@ static int lnmp_perform_routing(void *context)
         .vl_split_count = NULL, .max_vls = p_mgr->p_subn->opt.dfsssp_max_vls, .only_best_effort = p_mgr->p_subn->opt.dfsssp_best_effort};
     
     if(lnmp_context->apply_dfsssp) {
+        OSM_LOG(p_mgr->p_log, OSM_LOG_INFO,
+        "Performing deadlock removal through dfsssp_remove_deadlocks(...)\n");
         if(dfsssp_remove_deadlocks(&dfsssp_ctx)) {
             goto ERROR;
         }
@@ -1936,7 +2009,7 @@ static int lnmp_perform_routing(void *context)
         lnmp_context->vl_split_count = dfsssp_ctx.vl_split_count;
     } else {
         OSM_LOG(p_mgr->p_log, OSM_LOG_INFO,
-        "No deadlock removal specified -> skipping deadlock removal through dfsssp_remove_deadlocks(...)\n");
+        "Not performing deadlock removal through dfsssp_remove_deadlocks(...) but instead using new algorithm\n");
     }
 	/* list not needed after the dijkstra steps and deadlock removal */
 	cl_qlist_remove_all(&p_mgr->port_order_list);
@@ -1967,7 +2040,136 @@ ERROR:
     return -1;
 }
 
-static uint8_t get_lnmp_sl(void *context, uint8_t hint_for_default_sl, const ib_net16_t slid, const ib_net16_t dlid)
+static uint8_t get_vl_by_kind(lnmp_context_t *lnmp_context, uint8_t kind)
+{
+	uint8_t vl_avail = get_avail_vl_in_subn(lnmp_context->p_mgr);
+	uint8_t max_vls = lnmp_context->p_mgr->p_subn->opt.dfsssp_max_vls;
+	uint8_t count0, count1, count2;
+
+	if(max_vls > 0 && vl_avail > max_vls) {
+		vl_avail = max_vls;
+	}
+	count0 = vl_avail / 3;
+	count1 = vl_avail / 3;
+	count2 = vl_avail / 3;
+	count0 += (vl_avail % 3 > 0) ? 1 : 0;
+	count1 += (vl_avail % 3 > 1) ? 1 : 0;
+	/* choose a random VL out of all of the available ones */
+	if(kind == 0) {
+		return (uint8_t) (rand()%(vl_avail));
+	/* It's the first hop, choose a random VL out of the first bucket */
+	} else if(kind == 1) {
+		if(vl_avail <= 3) {
+			return 0;
+		} else {
+			return (uint8_t) (rand()%(count0));
+		}
+	/* It's the second hop on path of length 2, choose a random VL out of the second or third bucket */
+	} else if(kind == 2) {
+		if(vl_avail == 1) {
+			return 0;
+		} else {
+			// count0 > 0
+			return (uint8_t) (count0 + (rand()%(count1+count2)));
+		}
+	/* It's the second hop on path of length 3, choose a random VL out of the second bucket */
+	} else if(kind == 3) {
+		if(vl_avail == 1) {
+			return 0;
+		} else {
+			// count0 > 0
+			return (uint8_t) (count0 + (rand()%(count1)));
+		}
+	/* It's the third hop on path of length 3, choose a random VL out of the third bucket */
+	} else if(kind == 4) {
+		if(vl_avail <= 2) {
+			return vl_avail -1;
+		} else {
+			return (uint8_t) (count0 + count1 + (rand()%(count2)));
+		}
+	} else {
+		return (uint8_t) (rand()%(vl_avail));
+	}
+}
+
+static uint8_t sl2vl_entry(lnmp_context_t *lnmp_context, osm_node_t *node, uint8_t iport, uint8_t oport, uint8_t sl)
+{
+	uint64_t switch_idx;
+	vertex_t sw_vertex;
+	osm_node_t *in_node = NULL;
+	osm_node_t *out_node = NULL;
+	uint8_t in_node_port = 0;
+	uint8_t out_node_port = 0;
+	uint8_t color = 20;
+
+	if(sl == 0 || sl == 15) { // reserved service level
+		return sl % 8;
+	}
+
+	if (osm_node_get_type(node) == IB_NODE_TYPE_CA) {
+		return get_vl_by_kind(lnmp_context, 0);
+	} else if (osm_node_get_type(node) == IB_NODE_TYPE_SWITCH) {
+                switch_idx = lnmp_context->lid_port_map[get_lid(node)].switch_index;
+		sw_vertex = lnmp_context->adj_list[switch_idx];
+		color = lnmp_context->switch_colors[switch_idx];
+
+		in_node = osm_node_get_remote_node(sw_vertex.sw->p_node, iport, &in_node_port);
+		out_node = osm_node_get_remote_node(sw_vertex.sw->p_node, oport, &out_node_port);
+		if (!in_node || in_node->sw == sw_vertex.sw || !out_node || out_node->sw == sw_vertex.sw) {
+			return get_vl_by_kind(lnmp_context, 0);
+		}
+		if(!out_node->sw) {
+			// final hop towards endpoint
+			return get_vl_by_kind(lnmp_context, 0);
+		}
+		if (!in_node->sw) {
+			// first hop
+			return get_vl_by_kind(lnmp_context, 1);
+		}
+		if(sl == 1) {
+			// This is a two hop path
+			return get_vl_by_kind(lnmp_context, 2);
+		} else if(sl == color + 2) {
+			// This is the second hop of a path of length 3
+			return get_vl_by_kind(lnmp_context, 3);
+		} else if(sl > 1 && sl < 15) {
+			// This is the third hop of a path of length 3
+			return get_vl_by_kind(lnmp_context, 4);
+		} else {
+			return get_vl_by_kind(lnmp_context, 0);
+		}
+	} else {
+		return get_vl_by_kind(lnmp_context, 0);
+	}
+}
+
+static void lnmp_update_sl2vl(void *context, osm_physp_t *osm_phys_port, 
+			      uint8_t iport_num, uint8_t oport_num,
+			      ib_slvl_table_t *osm_oport_sl2vl)
+{
+	uint8_t sl, vl;
+	lnmp_context_t *lnmp_context = (lnmp_context_t *) context;
+	osm_ucast_mgr_t *p_mgr = (osm_ucast_mgr_t *) lnmp_context->p_mgr;
+	osm_node_t *node = osm_physp_get_node_ptr(osm_phys_port);
+
+	OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
+	" Called LNMP Update SL2VL with: src_port = %" PRIu8 ", dst_port = %" PRIu8 "on node 0x%" PRIx64 "\n",
+	iport_num, oport_num, cl_ntoh64(osm_node_get_node_guid(node)));
+
+	for (sl = 0; sl < 16; sl++) {
+		if(lnmp_context->apply_dfsssp) {
+			vl = sl % 8;
+		} else {
+			vl = sl2vl_entry(lnmp_context, node, iport_num, oport_num, sl);
+			OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
+			" Called LNMP Update SL2VL with: src_port = %" PRIu8 ", dst_port = %" PRIu8 ", sl = %" PRIu8 ", our_vl = %" PRIu8 ", dfsssp_vl = %" PRIu8 "\n",
+			iport_num, oport_num, sl, vl, sl % 8);
+		}
+		ib_slvl_table_set(osm_oport_sl2vl, sl, vl);
+	}
+}
+
+static uint8_t get_lnmp_sl_dfsssp(void *context, uint8_t hint_for_default_sl, const ib_net16_t slid, const ib_net16_t dlid)
 {
 	lnmp_context_t *lnmp_context = (lnmp_context_t *) context;
 	osm_port_t *src_port, *dest_port;
@@ -1976,12 +2178,11 @@ static uint8_t get_lnmp_sl(void *context, uint8_t hint_for_default_sl, const ib_
 	osm_ucast_mgr_t *p_mgr = NULL;
 	int32_t res = 0;
 
-    if (lnmp_context) {
+	if (lnmp_context) {
 		p_mgr = (osm_ucast_mgr_t *) lnmp_context->p_mgr;
 		srcdest2vl_table = (vltable_t *) (lnmp_context->srcdest2vl_table);
 		vl_split_count = (uint8_t *) (lnmp_context->vl_split_count);
-	}
-	else
+	} else
 		return hint_for_default_sl;
 
 	src_port = osm_get_port_by_lid(p_mgr->p_subn, slid);
@@ -2011,6 +2212,98 @@ static uint8_t get_lnmp_sl(void *context, uint8_t hint_for_default_sl, const ib_
     return hint_for_default_sl;
 }
 
+static uint8_t get_path_length(lnmp_context_t *lnmp_context, osm_node_t *start_sw, uint16_t dlid_ho, uint8_t *sw_color, uint8_t current_hop)
+{
+	uint64_t guid = 0;
+	uint32_t i = 0;
+	uint8_t first_out_port_num, hop_port = 0;
+	osm_node_t *next_node = NULL;
+
+	guid = cl_ntoh64(osm_node_get_node_guid(start_sw));
+        for (i = 1; i < lnmp_context->adj_list_size; i++) {
+            if (guid == lnmp_context->adj_list[i].guid) {
+                break;
+            }
+        }
+	if(current_hop == 2) {
+		*sw_color = lnmp_context->switch_colors[i];
+	}
+	first_out_port_num = osm_switch_get_port_by_lid(lnmp_context->adj_list[i].sw, dlid_ho, OSM_NEW_LFT);
+	next_node = osm_node_get_remote_node(start_sw, first_out_port_num, &hop_port);
+
+	if (first_out_port_num == 0 || osm_node_get_type(next_node) == IB_NODE_TYPE_CA) {
+		return current_hop;
+	} else if(osm_node_get_type(next_node) == IB_NODE_TYPE_SWITCH) {
+		return get_path_length(lnmp_context, next_node, dlid_ho, sw_color, current_hop + 1);
+	} else {
+		return 20;
+	}
+}
+
+static uint8_t get_lnmp_sl(void *context, uint8_t hint_for_default_sl, const ib_net16_t slid, const ib_net16_t dlid)
+{
+	lnmp_context_t *lnmp_context = (lnmp_context_t *) context;
+	if(lnmp_context->apply_dfsssp) {
+		OSM_LOG(lnmp_context->p_mgr->p_log, OSM_LOG_DEBUG, " Called DFSSSP get SL\n");
+		return get_lnmp_sl_dfsssp(context, hint_for_default_sl, slid, dlid);
+	}
+	osm_port_t *src_port, *dest_port;
+	osm_node_t *first_sw_node = NULL;
+	osm_ucast_mgr_t *p_mgr = lnmp_context->p_mgr;
+	uint8_t path_length = 0, color = 0;
+
+	uint16_t slid_ho = cl_ntoh16(slid);
+	uint16_t dlid_ho = cl_ntoh16(dlid);
+	uint8_t first_hop_port = 0;
+
+	src_port = osm_get_port_by_lid(p_mgr->p_subn, slid);
+	if (!src_port) {
+		return hint_for_default_sl;
+	}
+
+	dest_port = osm_get_port_by_lid(p_mgr->p_subn, dlid);
+	if (!dest_port) {
+		return hint_for_default_sl;
+	}
+
+	if (osm_node_get_type(src_port->p_node) == IB_NODE_TYPE_CA) {
+		if(!src_port->p_physp) {
+			return hint_for_default_sl;
+		}
+		first_sw_node = osm_node_get_remote_node(src_port->p_node, src_port->p_physp->port_num, &first_hop_port);
+		if(!first_sw_node || (osm_node_get_type(first_sw_node) != IB_NODE_TYPE_SWITCH)) {
+			return hint_for_default_sl;
+		}
+	} else if(osm_node_get_type(src_port->p_node) != IB_NODE_TYPE_SWITCH) {
+		return hint_for_default_sl;
+	} else {
+		first_sw_node = src_port->p_node;
+	}
+
+	path_length = get_path_length(lnmp_context, first_sw_node, dlid_ho, &color, 1);
+	uint8_t res = hint_for_default_sl;
+	if (path_length == 1) {
+		res = 1; // Single switch path, but use SL for 2-hop path but first hop and last hop clauses will apply first
+	} else if (path_length == 2) {
+		res = 1; // Double switch path, use SL for 2-hop path but first hop and last hop clauses will apply first
+	} else if (path_length == 3) {
+		res = 1; // Two hop path, use SL for 2-hop path
+	} else if (path_length == 4) {
+		res = color + 2; // Three hop path, use color of second-hop
+	} else if (path_length == 20) {
+		return hint_for_default_sl;
+	} else {
+		OSM_LOG(p_mgr->p_log, OSM_LOG_ERROR,
+		" Called LNMP get SL and path of length %" PRIu8 " > 3 found for src_lid = %" PRIu8 " and dst_lid = %" PRIu8 "\n",
+		path_length - 1, slid_ho, dlid_ho);
+		return hint_for_default_sl;
+	}
+	OSM_LOG(p_mgr->p_log, OSM_LOG_INFO,
+	" Called LNMP get SL and path of length %" PRIu8 " identified for src_lid = %" PRIu8 " and dst_lid = %" PRIu8 " and returned SL: %" PRIu8 "\n",
+	path_length - 1, slid_ho, dlid_ho, res);
+	return res;
+}
+
 static ib_api_status_t lnmp_do_mcast_routing(void *context, osm_mgrp_box_t *mbox)
 {
     lnmp_context_t *lnmp_context = (lnmp_context_t *) context;
@@ -2036,6 +2329,7 @@ int osm_ucast_lnmp_setup(struct osm_routing_engine *r, osm_opensm_t *p_osm)
     r->ucast_build_fwd_tables = lnmp_perform_routing;
     r->mcast_build_stree = lnmp_do_mcast_routing;
 
+    r->update_sl2vl = lnmp_update_sl2vl;
     r->path_sl = get_lnmp_sl; 
     r->destroy = delete;
 
