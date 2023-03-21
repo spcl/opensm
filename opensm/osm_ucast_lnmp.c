@@ -936,6 +936,9 @@ static int lnmp_build_graph(void *context)
                         "ERR AD99: cannot assign a unique color to a sw\n");
                 goto ERROR;
 	}
+	OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG, 
+		"Switch: 0x%" PRIx64 ", was assigned color %" PRIu8 " and SL %" PRIu8 "\n", 
+		cl_ntoh64(osm_node_get_node_guid(adj_list[i].sw->p_node)), switch_colors[i], switch_colors[i]+2);
     }
 
 
@@ -2298,7 +2301,7 @@ static uint8_t get_lnmp_sl(void *context, uint8_t hint_for_default_sl, const ib_
 		path_length - 1, slid_ho, dlid_ho);
 		return hint_for_default_sl;
 	}
-	OSM_LOG(p_mgr->p_log, OSM_LOG_INFO,
+	OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
 	" Called LNMP get SL and path of length %" PRIu8 " identified for src_lid = %" PRIu8 " and dst_lid = %" PRIu8 " and returned SL: %" PRIu8 "\n",
 	path_length - 1, slid_ho, dlid_ho, res);
 	return res;
