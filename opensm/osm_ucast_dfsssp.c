@@ -2544,18 +2544,15 @@ static uint8_t get_dfsssp_sl(void *context, uint8_t hint_for_default_sl,
 
 	src_port = osm_get_port_by_lid(p_mgr->p_subn, slid);
 	if (!src_port) {
-		OSM_LOG(p_mgr->sm->p_log, OSM_LOG_INFO, "SL requested --- source: 0x%" PRIx16 "  destination: 0x%" PRIx16 "  returned default sl (no src):  %" PRIu8 " \n", cl_ntoh16(slid), cl_ntoh16(dlid), hint_for_default_sl);
 		return hint_for_default_sl;
 	}
 
 	dest_port = osm_get_port_by_lid(p_mgr->p_subn, dlid);
 	if (!dest_port) {
-		OSM_LOG(p_mgr->sm->p_log, OSM_LOG_INFO, "SL requested --- source: 0x%" PRIx16 "  destination: 0x%" PRIx16 "  returned default sl (no dst):  %" PRIu8 " \n", cl_ntoh16(slid), cl_ntoh16(dlid), hint_for_default_sl);
 		return hint_for_default_sl;
 	}	
 
 	if (!srcdest2vl_table) {
-		OSM_LOG(p_mgr->sm->p_log, OSM_LOG_INFO, "SL requested --- source: 0x%" PRIx16 "  destination: 0x%" PRIx16 "  returned default sl (no sd2cl table):  %" PRIu8 " \n", cl_ntoh16(slid), cl_ntoh16(dlid), hint_for_default_sl);
 		return hint_for_default_sl;
 	}
 

@@ -2155,18 +2155,11 @@ static void lnmp_update_sl2vl(void *context, osm_physp_t *osm_phys_port,
 	osm_ucast_mgr_t *p_mgr = (osm_ucast_mgr_t *) lnmp_context->p_mgr;
 	osm_node_t *node = osm_physp_get_node_ptr(osm_phys_port);
 
-	OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
-	" Called LNMP Update SL2VL with: src_port = %" PRIu8 ", dst_port = %" PRIu8 "on node 0x%" PRIx64 "\n",
-	iport_num, oport_num, cl_ntoh64(osm_node_get_node_guid(node)));
-
 	for (sl = 0; sl < 16; sl++) {
 		if(lnmp_context->apply_dfsssp) {
 			vl = sl % 8;
 		} else {
 			vl = sl2vl_entry(lnmp_context, node, iport_num, oport_num, sl);
-			OSM_LOG(p_mgr->p_log, OSM_LOG_DEBUG,
-			" Called LNMP Update SL2VL with: src_port = %" PRIu8 ", dst_port = %" PRIu8 ", sl = %" PRIu8 ", our_vl = %" PRIu8 ", dfsssp_vl = %" PRIu8 "\n",
-			iport_num, oport_num, sl, vl, sl % 8);
 		}
 		ib_slvl_table_set(osm_oport_sl2vl, sl, vl);
 	}
@@ -2247,7 +2240,6 @@ static uint8_t get_lnmp_sl(void *context, uint8_t hint_for_default_sl, const ib_
 {
 	lnmp_context_t *lnmp_context = (lnmp_context_t *) context;
 	if(lnmp_context->apply_dfsssp) {
-		OSM_LOG(lnmp_context->p_mgr->p_log, OSM_LOG_DEBUG, " Called DFSSSP get SL\n");
 		return get_lnmp_sl_dfsssp(context, hint_for_default_sl, slid, dlid);
 	}
 	osm_port_t *src_port, *dest_port;
