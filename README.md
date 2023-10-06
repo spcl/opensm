@@ -2,7 +2,7 @@ A High-Performance Design, Implementation, Deployment, and Evaluation of The Sli
 =============================================================================================
 
 ## Description
-This fork of OpenSM introduces the LNMP (Layered Non-Minimal Path) Routing algorithm, designed to specifically enhance the performance of low-diameter networks such as Slim Fly (SF). This routing algorithm is a part of our broader study on deploying Slim Fly networks in practice. All details on its design, applicability and performance, are detailed in our paper, ["A High-Performance Design, Implementation, Deployment, and Evaluation of The Slim Fly Network"](arxiv).
+This fork of OpenSM introduces the LNMP (Layered Non-Minimal Path) Routing algorithm, designed to specifically enhance the performance of low-diameter networks such as Slim Fly (SF). This routing algorithm is a part of our broader study on deploying Slim Fly networks in practice. All details on its design, applicability and performance, are detailed in our paper, ["A High-Performance Design, Implementation, Deployment, and Evaluation of The Slim Fly Network"](https://arxiv.org/pdf/2310.03742.pdf).
 
 
 ## Acknowledgment of Original Work
@@ -30,9 +30,15 @@ layers_remove_deadlocks FALSE
 ```
 
 ## Paper Reference
-For a comprehensive understanding of the LNMP routing algorithm and its performance implications, please refer to our [paper](arxiv). If you use the LNMP algorithm in your work, kindly cite our [paper](arxiv) using the following BibTeX entry:
+For a comprehensive understanding of the LNMP routing algorithm and its performance implications, please refer to our [paper](https://arxiv.org/pdf/2310.03742.pdf). If you use the LNMP algorithm in your work, kindly cite our [paper](https://arxiv.org/pdf/2310.03742.pdf) using the following BibTeX entry:
 ```bibtex
-To be added
+@misc{blach2023highperformance,
+    title = {{A High-Performance Design, Implementation, Deployment, and Evaluation of The Slim Fly Network}}, 
+    author = {Nils Blach and Maciej Besta and Daniele De Sensi and Jens Domke and Hussein Harake and Shigang Li and Patrick Iff and Marek Konieczny and Kartik Lakhotia and Ales Kubicek and Marcel Ferrari and Fabrizio Petrini and Torsten Hoefler},
+    year = 2023,
+    eprinttype = {arXiv},
+    eprint = {2310.03742}
+}
 ```
 
 ## Original README Content
